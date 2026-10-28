@@ -113,6 +113,8 @@ const documentStub = {
 
 globalThis.document = documentStub;
 globalThis.window = {
+  addEventListener: noop, removeEventListener: noop, dispatchEvent: noop,
+  setInterval: () => 0, clearInterval: noop,
   __ModuleLoader__: { load: (entry) => { captured = entry; } },
   localStorage: {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -125,6 +127,19 @@ globalThis.fetch = (url) => {
   if (u.includes("/official")) {
     const m = /range=([a-z0-9]+)/i.exec(u);
     payload = official(m ? m[1] : "today");
+  } else if (u.includes("/pricing")) {
+    const snap = JSON.parse(readFileSync(join(ROOT, "src", "pricing.snapshot.json"), "utf8"));
+    const models = {}; const names = {};
+    for (const row of snap.models) {
+      const [id, name, input, output, cacheRead, cacheWrite] = row;
+      models[id] = { input, output, cacheRead, cacheWrite };
+      names[id] = name || id;
+    }
+    payload = { ok: true, schema: 2, currency: "USD", usdToCny: 0, models, names };
+  } else if (u.includes("/local")) {
+    payload = { ok: true, points: official("today").days, balance: {} };
+  } else if (u.includes("/status")) {
+    payload = { ok: true, account: true, local: { available: true } };
   } else if (u.includes("/summary")) {
     const year = Number(/year=(\d+)/.exec(u)[1]);
     const month = Number(/month=(\d+)/.exec(u)[1]);
@@ -176,10 +191,10 @@ mod.apply({ slots: { inject: (_, f) => f(), register: (_, c) => { Seat = c; } } 
 
 /* 默认打开弹窗：席位第一个 hook 就是 open */
 inst.hooks[0] = true;
-if (PAGE === "calendar") inst.hooks[7] = "calendar";
+if (PAGE === "calendar") inst.hooks[14] = "calendar";
 if (OPEN === "week" || OPEN === "month") inst.hooks[18] = OPEN;
-else if (OPEN === "day") inst.hooks[19] = { title: "10月27日", eyebrow: "日期详情", day: { hit: 1_652_000, miss: 984_000, output: 539_000, requests: 1252, cost: 4.35, tokens: 3_175_000 } };
-else if (OPEN) inst.hooks[11] = OPEN;
+else if (OPEN === "day") inst.hooks[18] = { title: "10月27日", eyebrow: "日期详情", day: { hit: 1_652_000, miss: 984_000, output: 539_000, requests: 1252, cost: 4.35, tokens: 3_175_000 } };
+else if (OPEN) inst.hooks[18] = OPEN;
 
 function commitEffects() {
   inst.effects.forEach((e) => {

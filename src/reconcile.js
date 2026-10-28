@@ -21,6 +21,14 @@ function tokensOf(value) {
   return (value.hit ?? 0) + (value.miss ?? 0) + (value.output ?? 0);
 }
 
+function moneyOf(payload, points) {
+  for (const field of ["cost", "spent"]) {
+    if (Object.hasOwn(payload, field)) return typeof payload[field] === "number" && Number.isFinite(payload[field]) ? payload[field] : null;
+  }
+  if (points.some((point) => point.cost === null)) return null;
+  return points.reduce((sum, point) => sum + (point.cost ?? 0), 0);
+}
+
 function summaryOf(payload, available) {
   if (!available || payload === null || payload === undefined) {
     return {
@@ -30,7 +38,11 @@ function summaryOf(payload, available) {
       miss: 0,
       output: 0,
       requests: 0,
-      cost: 0,
+      cost: null,
+      currency: null,
+      estimated: false,
+      costMeta: null,
+      coverage: null,
     };
   }
   const tokens = payload.tokens ?? {};
@@ -43,12 +55,11 @@ function summaryOf(payload, available) {
     miss: typeof tokens.miss === "number" ? tokens.miss : sum("miss"),
     output: typeof tokens.output === "number" ? tokens.output : sum("output"),
     requests: typeof payload.requests === "number" ? payload.requests : sum("requests"),
-    cost:
-      typeof payload.cost === "number"
-        ? payload.cost
-        : typeof payload.spent === "number"
-          ? payload.spent
-          : sum("cost"),
+    cost: moneyOf(payload, points),
+    currency: payload.currency ?? (payload.source === "local" || payload.costMeta ? "CNY" : payload.balance?.currency ?? "CNY"),
+    estimated: payload.costMeta?.estimated === true,
+    costMeta: payload.costMeta ?? null,
+    coverage: payload.coverage ?? null,
   };
 }
 
@@ -60,7 +71,7 @@ function pointOfOfficial(point) {
   return {
     tokens: tokensOf(point),
     requests: point?.requests ?? 0,
-    cost: point?.cost ?? 0,
+    cost: point && Object.hasOwn(point, "cost") ? point.cost : 0,
   };
 }
 
@@ -68,6 +79,9 @@ function pointOfLocal(point) {
   return {
     tokens: tokensOf(point),
     requests: point?.requests ?? 0,
+    cost: point && Object.hasOwn(point, "cost") ? point.cost : null,
+    pricedTokens: point?.pricedTokens ?? 0,
+    unpricedTokens: point?.unpricedTokens ?? 0,
   };
 }
 
@@ -134,7 +148,7 @@ export function buildReconcilePayload(deps = {}) {
   }
   if (official.available && local.available) {
     caveats.push(
-      "官方为账户全量，本地仅本机 DSH 会话；差额可能来自其他客户端、中转/API Key 路由或已清理的会话。"
+      "官方为账户全量，本地仅本机 DSH 会话；未覆盖部分可能来自其他客户端、中转/API Key 路由或已清理的会话。"
     );
     caveats.push("官方账单最多延迟约 5 分钟；本地会话日志实时。");
   }

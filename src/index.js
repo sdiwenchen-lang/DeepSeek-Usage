@@ -71,6 +71,7 @@ export function apply(ctx, config = {}) {
     api,
     cache,
     local,
+    pricing: local.pricing,
     logger,
     lookbackMonths: config.lookbackMonths ?? 24,
   });

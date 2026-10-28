@@ -14,16 +14,14 @@ DeepMeter 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧
   以及请求次数 / Tokens 两张走势图。
 - **本地 AI 聚合**：直接读 DSH 会话日志里 provider 上报的 `usage`，按天/小时折叠；
   默认包含本机所有 Provider（DeepSeek、中转、OpenAI/Codex 等），不再有
-  「DeepSeek 官方 / 全部 Provider」切换。数据源选择会持久化，侧边栏「今日」指标
-  跟随当前数据源；本地模式的 Token 和消费金额都标 `≈`（日志覆盖可能不完整，
-  金额再按当前费率估算，不声称与账单等价），费率可在面板里按模型增改；
+  「DeepSeek 官方 / 全部 Provider」切换。数据源选择会持久化，侧边栏指标
+  跟随当前数据源；本地模式不显示约等号，金额注明按当前费率估算（日志覆盖可能不完整，
+  不声称与账单等价），费率可在面板里按模型增改；侧栏标签可直接拖拽排序，也可上传图标；
   余额仍读取官方账户余额，和本地日志范围无关。
 - **官方 vs 本地对账**：同一范围内并排显示官方 DeepSeek 账单、本地 DeepSeek
-  路由、覆盖率、差额；本地主视图含全部 Provider，对账条只比较 DeepSeek 路由，
+  路由与覆盖率，可展开逐日/逐小时明细；本地主视图含全部 Provider，对账条只比较 DeepSeek 路由，
   避免把中转/OpenAI 混进官方账单口径；官方未登录时降级为只显示本地，不整体报错。
-- **本地费用估算**：按模型分别计价，缓存命中 / 未命中 / 缓存写入 / 输出四个桶不混算；
-  工作日 08:00–12:00、14:00–18:00（北京时间）用高峰价，其余时段、周末和法定节假日
-  用低谷价。未定价模型如实标记并显示「暂无费率」，不按 0 元计入；面板内可增改费率。
+- **本地费用估算**：内置 228 个模型的 USD 快照，缓存命中 / 未命中输入 / 缓存写入 / 输出四个桶分别计价，不按时段切换；面板内可编辑单价及美元兑人民币汇率，汇率默认 6.7（常用中间价），本地金额统一折算人民币。未定价模型显示「暂无费率」，不按 0 元计入。
 - **用量日历**：当月每日 Token 热力图，5 级深浅，可翻月。
 - **筛选**：时间范围（今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月）、模型多选。
 
@@ -113,22 +111,19 @@ DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profil
         - deepseek-account
         - deepseek
       pricing:                          # 可选：本地费用估算
-        enabled: true                   # false 时本地消费金额显示「暂无可用费率」
-        # models:                       # 覆盖默认表（CNY / 百万 token）
-        #   deepseek-v4-pro:
-        #     peak:    { miss: 9, hit: 0.3, cacheWrite: 0, output: 27 }
-        #     offpeak: { miss: 4.5, hit: 0.15, cacheWrite: 0, output: 13.5 }
-        # peakIntervals: [[480, 720], [840, 1080]]   # 分钟，默认 08:00–12:00 / 14:00–18:00
-        # holidays: ["2026-10-01", ["2026-10-01", "2026-10-07"]]
+        enabled: true
+        # usdToCny: 自定义汇率；留空/0 使用内置默认 6.7
+        # models:                       # USD / 百万 Tokens，四项缺一不可
+        #   custom-model:
+        #     input: 1
+        #     output: 4
+        #     cacheRead: 0.1
+        #     cacheWrite: 1.25
 ```
 
-默认定价表覆盖 `deepseek-flash` / `deepseek-v4-flash` / `deepseek-v4.1-flash` /
-`deepseek-v4-flash-vision-exp` 与 `deepseek-v4-pro`，并为 `deepseek-chat` /
-`deepseek-reasoner` / V3 系列保留平价。Flash / Pro 的高峰/低谷价就是面板里
-预填的两行（命中 0.04/0.02、0.30/0.15；未命中 2/1、9/4.5；输出 8/4、27/13.5，
-单位元/百万 token）。价格与 CC Switch 的 DeepSeek 行同步；峰谷按北京时间（默认 08:00–12:00、14:00–18:00，可在面板费率里查看）。
-未知模型（例如本机 `gpt-6.1-sol`）不会计费，`costMeta` 会报告
-`complete: false` 与 `unpricedModels`；在面板「设置 → 本地费率」里补一行即可。
+默认费率来自 `src/pricing.snapshot.json`，快照日期 2026-10-28，共 228 个唯一模型；美元兑人民币默认按 6.7 估算，可在设置里修改。DeepSeek 采用高峰价（USD / 百万 Tokens，命中 / 未命中 / 输出）：V4.1 Flash `0.006 / 0.30 / 1.20`，V4 Flash（旧版/兼容）`0.014 / 0.44 / 1.32`，V4 Pro `0.044 / 1.32 / 3.96`；面板不区分峰谷时段。在「显示设置 → 定价 → 管理定价…」中可搜索、编辑或添加模型、恢复默认费率，并修改汇率；浏览器只保存 USD 稀疏覆盖。旧人民币峰谷配置保留但不直接迁移。
+
+公式为 `(未命中输入×input + 输出×output + 缓存命中×cacheRead + 缓存写入×cacheWrite) / 1,000,000` 美元，再按汇率换算为人民币（默认 6.7）。「消费金额」卡只显示人民币金额，点击不跳转；汇率在设置里用独立小弹窗修改，保存后立即重算。未知模型不当免费；空/未来用量为零。部分已定价的金额仅代表已覆盖部分，响应标记 `complete: false` 和 `unpricedModels`。修改费率或汇率会重算已缓存 Token，不重读未变化日志。
 
 ## 插件自有端点
 
@@ -137,12 +132,13 @@ DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profil
 
 | 端点 | 作用 |
 | --- | --- |
+| `GET /api/deepseek-usage/pricing` | 有效四通道 USD 费率、生效汇率与快照元信息 |
 | `GET /api/deepseek-usage/status` | 数据源状态：是否检测到账号、数据源引用、是否降级 |
 | `GET /api/deepseek-usage/summary?year=&month=` | 余额 + 指定月份逐日逐模型用量与汇总（日历页数据） |
-| `GET /api/deepseek-usage/official?range=today\|yesterday\|last7\|last30\|thisMonth\|lastMonth` | 所选范围的账户摘要、金额 / 请求数 / Tokens 汇总及逐日逐模型序列；自动加载跨月所需数据 |
+| `GET /api/deepseek-usage/official?range=today\|yesterday\|last7\|last30\|thisMonth\|lastMonth` | 官方用量；也接受 `from=YYYY-MM-DD&to=YYYY-MM-DD&tz=`（最多 800 天）。按自然月精确分片，保留首尾部分月份，未来日期补零且不请求上游 |
 | `GET /api/deepseek-usage/local?range=…&scope=all\|deepseek&tz=&rates=` | 本地会话日志的逐日/逐小时 Token、模型、Provider、缓存命中率、coverage 与 `cost` / `costMeta`（当前费率估算）；默认 `scope=all`，`rates` 可覆盖费率；也接受 `from=&to=` 自定义范围 |
 | `GET /api/deepseek-usage/reconcile?range=…&scope=…` | 同一范围官方 vs 本地：覆盖率、差额、逐日/逐小时对账；官方未登录或本地不可用时降级一侧 |
-| `GET /api/deepseek-usage/panel.css` | 面板样式表（约 50KB，独立下发，见「体积预算」） |
+| `GET /api/deepseek-usage/panel.css` | 面板样式表（约 69KB，独立下发，见「体积预算」） |
 
 ## 代码结构
 
@@ -156,7 +152,8 @@ DeepSeek-Usage/
 │   ├── cache.js        # TTL + in-flight 去重
 │   ├── local-fold.js   # 纯折叠：usage 事件 → 小时/route 桶；同 (turn, step) 替换
 │   ├── local.js        # 本地数据源：sessionPersistence 扫描、revision 缓存、范围聚合
-│   ├── pricing.js      # DeepSeek 费率表、峰谷判定、逐桶费用估算
+│   ├── pricing.js      # 四通道 USD 费率、显式 FX、缓存分析与费用覆盖率
+│   ├── pricing.snapshot.json # 228 模型离线默认费率
 │   ├── reconcile.js    # 官方 vs 本地对账 payload
 │   ├── client.js       # 浏览器半边：__ModuleLoader__ bundle，React 组件与图表（纯 SVG）
 │   └── panel.css       # 面板样式（由 /panel.css 下发）
@@ -170,13 +167,14 @@ DeepSeek-Usage/
 ## 开发检查
 
 ```bash
+npm test               # 离线 mock API、计价、本地聚合与客户端回归
 npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 ```
 
 几个非显然、改代码前必须知道的约束：
 
 - **客户端 bundle 只能导出 `apply` / `inject`**。导出 `default` 会让宿主 fiber 卡在 loading，整个 web 启动失败。
-- **bundle 上限 100KB**，而面板样式有 ~50KB。所以样式走 `/api/deepseek-usage/panel.css` 单独下发，
+- **bundle 上限 100KB**，而面板样式有 ~69KB。所以样式走 `/api/deepseek-usage/panel.css` 单独下发，
   客户端只注入一个 `<link>`；把 CSS 塞回 `client.js` 会直接超限。
 - **`inject` 里只声明真用到的服务**：`credentials` 必须；`webServer` / `httpServer` / `commands` /
   `sessionPersistence` 是可选的，用 `ctx.get()` 探测——Cordis 4 下直接读 `ctx.commands` 会抛错。
@@ -189,9 +187,9 @@ npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 
 | 项 | 预算 | 实测 |
 | --- | --- | --- |
-| 客户端 bundle | ≤ 102400B | ~99.5KB |
-| 面板样式 | 独立下发 | ~50KB |
-| 面板不可见时 | 零请求、零定时器 | 满足 |
+| 客户端 bundle | ≤ 102400B | 102350B（本次验证） |
+| 面板样式 | 独立下发 | ~69KB |
+| 侧边栏摘要 | 每 120 秒刷新当前数据源 | 同费率/同汇率口径 |
 | 图表渲染 | 纯 SVG，≤ 5ms | 满足 |
 | 本地 126 个会话首次折叠 | < 5s | ~2.3s |
 | 本地增量折叠 | 只重读 revision 变化的会话 | 满足 |
@@ -201,7 +199,7 @@ npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 - 凭据只经宿主 credentials 服务按引用读取，**不写文件、不下发浏览器、不进日志**。
 - token 只出现在 `x-dsh-auth-token` 请求头，不进 URL。
 - 自有端点仅回环，`screenRequest` 双校验 peer socket 与 Host。
-- 无后台轮询：只有打开面板 / 切换月份或范围 / 手动刷新时才取数，10 分钟 TTL + in-flight 去重。
+- 面板按打开、范围切换和手动刷新取数；侧边栏每 120 秒更新摘要。官方月度分片有 TTL 与 in-flight 去重，纯未来范围不读取账号或调用上游。
 
 ## 已知限制
 

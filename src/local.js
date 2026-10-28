@@ -27,7 +27,7 @@
  */
 
 import { cacheHitRate, foldSession, parseRouteKey, totalTokens, zeroBuckets } from "./local-fold.js";
-import { createPricing, WINDOW_FIELDS } from "./pricing.js";
+import { analyzeCache, createPricing } from "./pricing.js";
 
 export const DEFAULT_OFFICIAL_PROVIDERS = ["deepseek-official", "deepseek-account", "deepseek"];
 
@@ -85,10 +85,6 @@ function localHourOf(ms, tz) {
   return Number(new Date(ms + tz * 1000).toISOString().slice(11, 13));
 }
 
-function round2(value) {
-  return Math.round(value * 100) / 100;
-}
-
 function pad2(value) {
   return String(value).padStart(2, "0");
 }
@@ -104,205 +100,69 @@ function rangeDates(from, to) {
   return dates;
 }
 
-function blankWindows() {
-  const windows = {};
-  for (const field of WINDOW_FIELDS) windows[field] = 0;
-  return windows;
-}
-
-function addWindows(target, source) {
-  for (const field of WINDOW_FIELDS) {
-    if (source[field] !== undefined) target[field] = (target[field] ?? 0) + source[field];
-  }
-}
-
 function aggregate(state, options) {
   const { from, to, tz, scope, granularity, now, officialProviders, pricing } = options;
-  const points = new Map();
-  const models = new Map();
-  const providers = new Map();
-  const totals = { ...zeroBuckets(), ...blankWindows(), cost: 0, pricedTokens: 0, unpricedTokens: 0 };
-  let firstAt = null;
-  let lastAt = null;
-
+  const points = new Map(), models = new Map(), providers = new Map();
+  const accumulator = (extra = {}) => ({ ...zeroBuckets(), cost: 0, usd: 0, pricedTokens: 0, unpricedTokens: 0, ...extra });
+  const totals = accumulator();
+  let firstAt = null, lastAt = null;
   const pointFor = (key, date, hour) => {
-    let point = points.get(key);
-    if (point === undefined) {
-      point = {
-        key,
-        date,
-        ...(granularity === "hour" ? { hour, label: `${pad2(hour)}:00` } : {}),
-        hit: 0,
-        miss: 0,
-        cacheWrite: 0,
-        output: 0,
-        requests: 0,
-        tokens: 0,
-        cost: 0,
-        pricedTokens: 0,
-        unpricedTokens: 0,
-        ...blankWindows(),
-        models: new Map(),
-      };
-      points.set(key, point);
-    }
-    return point;
+    if (!points.has(key)) points.set(key, accumulator({ key, date,
+      ...(granularity === "hour" ? { hour, label: pad2(hour) + ":00" } : {}), models: new Map() }));
+    return points.get(key);
   };
-
+  const add = (target, buckets, quote) => {
+    for (const field of ["hit", "miss", "cacheWrite", "output", "requests"]) target[field] += buckets[field];
+    target.usd += quote.usd ?? 0;
+    target.cost += quote.cost ?? 0;
+    target.pricedTokens += quote.pricedTokens;
+    target.unpricedTokens += quote.unpricedTokens;
+  };
+  const fxReady = pricing.meta().fxReady;
+  const finish = (row) => {
+    const tokens = totalTokens(row);
+    return { ...row, tokens, hitRate: cacheHitRate(row),
+      usd: tokens === 0 || row.pricedTokens > 0 ? row.usd : null,
+      cost: tokens === 0 ? 0 : row.pricedTokens > 0 && fxReady ? row.cost : null,
+      costComplete: row.unpricedTokens === 0 };
+  };
   for (const session of state.sessions.values()) {
     if (session.firstAt !== null && (firstAt === null || session.firstAt < firstAt)) firstAt = session.firstAt;
     if (session.lastAt !== null && (lastAt === null || session.lastAt > lastAt)) lastAt = session.lastAt;
-
     for (const [hour, routes] of session.hours) {
       const date = hour.slice(0, 10);
       if (date < from || date > to) continue;
-      if (granularity === "hour" && date !== from) continue;
-
-      const key = granularity === "hour" ? hour : date;
-      const point = pointFor(key, date, granularity === "hour" ? Number(hour.slice(11, 13)) : undefined);
-
-      for (const [keyOfRoute, buckets] of routes) {
-        const { provider, model } = parseRouteKey(keyOfRoute);
+      const point = pointFor(granularity === "hour" ? hour : date, date, Number(hour.slice(11, 13)));
+      for (const [route, buckets] of routes) {
+        const { provider, model } = parseRouteKey(route);
         if (scope !== "all" && !officialProviders.has(provider)) continue;
-
-        for (const field of ["hit", "miss", "cacheWrite", "output", "requests"]) {
-          point[field] += buckets[field];
-          totals[field] += buckets[field];
-        }
         const quote = pricing.quote(model, buckets);
-        const cost = quote.cost ?? 0;
-        const pricedTokens = quote.pricedTokens;
-        const unpricedTokens = quote.unpricedTokens;
-        addWindows(point, buckets);
-        addWindows(totals, buckets);
-        point.cost += cost;
-        point.pricedTokens += pricedTokens;
-        point.unpricedTokens += unpricedTokens;
-        totals.cost += cost;
-        totals.pricedTokens += pricedTokens;
-        totals.unpricedTokens += unpricedTokens;
-
-        const pointModel = point.models.get(model) ?? {
-          model,
-          tokens: 0,
-          requests: 0,
-          hit: 0,
-          miss: 0,
-          output: 0,
-          cost: 0,
-          pricedTokens: 0,
-          unpricedTokens: 0,
-          ...blankWindows(),
-        };
-        pointModel.tokens += totalTokens(buckets);
-        pointModel.requests += buckets.requests;
-        pointModel.hit += buckets.hit;
-        pointModel.miss += buckets.miss;
-        pointModel.output += buckets.output;
-        pointModel.cost += cost;
-        pointModel.pricedTokens += pricedTokens;
-        pointModel.unpricedTokens += unpricedTokens;
-        addWindows(pointModel, buckets);
+        const pointModel = point.models.get(model) ?? accumulator({ model });
+        const globalModel = models.get(model) ?? accumulator({ model });
+        const globalProvider = providers.get(provider) ?? accumulator({ provider, scope: officialProviders.has(provider) ? "official" : "other" });
+        for (const target of [point, pointModel, globalModel, globalProvider, totals]) add(target, buckets, quote);
         point.models.set(model, pointModel);
-
-        const globalModel = models.get(model) ?? {
-          model,
-          tokens: 0,
-          requests: 0,
-          cost: 0,
-          pricedTokens: 0,
-          unpricedTokens: 0,
-          ...blankWindows(),
-        };
-        globalModel.tokens += totalTokens(buckets);
-        globalModel.requests += buckets.requests;
-        globalModel.cost += cost;
-        globalModel.pricedTokens += pricedTokens;
-        globalModel.unpricedTokens += unpricedTokens;
-        addWindows(globalModel, buckets);
         models.set(model, globalModel);
-
-        const globalProvider = providers.get(provider) ?? {
-          provider,
-          tokens: 0,
-          requests: 0,
-          cost: 0,
-          pricedTokens: 0,
-          unpricedTokens: 0,
-          ...blankWindows(),
-          scope: officialProviders.has(provider) ? "official" : "other",
-        };
-        globalProvider.tokens += totalTokens(buckets);
-        globalProvider.requests += buckets.requests;
-        globalProvider.cost += cost;
-        globalProvider.pricedTokens += pricedTokens;
-        globalProvider.unpricedTokens += unpricedTokens;
-        addWindows(globalProvider, buckets);
         providers.set(provider, globalProvider);
       }
     }
   }
-
-  // 补齐空日期/空小时，保证图表横轴连续。
-  const dates = rangeDates(from, to);
   const today = localDayOf(now, tz);
-  for (const date of dates) {
-    if (granularity === "day") {
-      pointFor(date, date);
-      continue;
-    }
-    const limit = date === today ? localHourOf(now, tz) : 23;
-    for (let hour = 0; hour <= limit; hour += 1) {
-      pointFor(`${date}T${pad2(hour)}`, date, hour);
-    }
+  for (const date of rangeDates(from, to)) {
+    if (granularity === "day") { pointFor(date, date); continue; }
+    const limit = date > today ? 23 : date === today ? localHourOf(now, tz) : 23;
+    for (let hour = 0; hour <= limit; hour++) pointFor(date + "T" + pad2(hour), date, hour);
   }
-
-  const ordered = [...points.values()]
-    .map((point) => {
-      point.tokens = totalTokens(point);
-      point.hitRate = cacheHitRate(point);
-      point.cost = round2(point.cost);
-      point.costComplete = point.unpricedTokens === 0;
-      point.models = [...point.models.values()].sort((a, b) => b.tokens - a.tokens).map((model) => ({
-        ...model,
-        cost: round2(model.cost),
-        costComplete: model.unpricedTokens === 0,
-      }));
-      return point;
-    })
-    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-
-  const orderedModels = [...models.values()].sort((a, b) => b.tokens - a.tokens).map((model) => ({
-    ...model,
-    cost: round2(model.cost),
-    costComplete: model.unpricedTokens === 0,
-  }));
-  const orderedProviders = [...providers.values()].sort((a, b) => b.tokens - a.tokens).map((provider) => ({
-    ...provider,
-    cost: round2(provider.cost),
-    costComplete: provider.unpricedTokens === 0,
-  }));
-  const total = { ...totals, tokens: totalTokens(totals), hitRate: cacheHitRate(totals), cost: round2(totals.cost) };
-
-  return {
-    points: ordered,
-    models: orderedModels,
-    providers: orderedProviders,
-    totals: total,
-    tokens: {
-      total: total.tokens,
-      hit: total.hit,
-      miss: total.miss,
-      output: total.output,
-      hitRate: total.hitRate,
-    },
-    requests: total.requests,
-    cost: total.cost,
-    pricedTokens: total.pricedTokens,
-    unpricedTokens: total.unpricedTokens,
-    firstAt,
-    lastAt,
-  };
+  const sorted = (rows) => [...rows].map(finish).sort((a, b) => b.tokens - a.tokens);
+  const orderedModels = sorted(models.values());
+  const total = finish(totals);
+  return { points: [...points.values()].map((point) => ({ ...finish(point), models: sorted(point.models.values()) }))
+      .sort((a, b) => a.key.localeCompare(b.key)),
+    models: orderedModels, providers: sorted(providers.values()), totals: total,
+    tokens: { total: total.tokens, hit: total.hit, miss: total.miss, cacheWrite: total.cacheWrite, output: total.output, hitRate: total.hitRate },
+    requests: total.requests, cost: total.cost, usd: total.usd,
+    pricedTokens: total.pricedTokens, unpricedTokens: total.unpricedTokens,
+    cache: analyzeCache(orderedModels, pricing.enabled ? pricing.pricer : null), firstAt, lastAt };
 }
 
 /**
@@ -397,7 +257,7 @@ export function createLocalSource(deps = {}) {
 
       try {
         const events = await readSessionEvents(persistence, sessionId);
-        const folded = foldSession(events, { tz, pricing });
+        const folded = foldSession(events, { tz });
         state.sessions.set(sessionId, {
           sessionId,
           revision,
@@ -494,7 +354,10 @@ export function createLocalSource(deps = {}) {
     const activePricing = options.rates
       ? createPricing({
         ...(config.pricing ?? {}),
-        models: { ...(config.pricing?.models ?? {}), ...options.rates },
+        ...options.rates,
+        // 浏览器留空（0）只表示“未自定义”，保留服务端配置；两边都没有汇率时不换算。
+        usdToCny: options.rates.usdToCny > 0 ? options.rates.usdToCny : config.pricing?.usdToCny,
+        models: { ...(config.pricing?.models ?? {}), ...(options.rates.models ?? {}) },
         source: "自定义费率",
       })
       : pricing;
@@ -524,7 +387,9 @@ export function createLocalSource(deps = {}) {
       tokens: aggregated.tokens,
       requests: aggregated.totals.requests,
       coverage: coverageOf(state, tz, scope),
-      cost: aggregated.pricedTokens > 0 ? round2(aggregated.cost) : null,
+      cost: aggregated.cost,
+      usd: aggregated.usd,
+      cache: aggregated.cache,
       costMeta: {
         ...activePricing.meta(),
         estimated: true,
@@ -551,5 +416,5 @@ export function createLocalSource(deps = {}) {
     byTz.clear();
   }
 
-  return { query, status, clear, sweep: (tz = 0, force = true) => ensureFresh(tz, force) };
+  return { query, status, clear, pricing, sweep: (tz = 0, force = true) => ensureFresh(tz, force) };
 }

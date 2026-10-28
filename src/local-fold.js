@@ -26,11 +26,6 @@
  * @module deepseek-usage/local-fold
  */
 
-import { WINDOW_FIELDS } from "./pricing.js";
-
-/** 四个计费桶；峰/谷拆分字段由 pricing 的 `WINDOW_FIELDS` 定义。 */
-const TOKEN_FIELDS = ["hit", "miss", "cacheWrite", "output"];
-
 /** DSH 没有报 provider/model 时的占位。 */
 export const UNKNOWN = "unknown";
 
@@ -49,13 +44,6 @@ export function addBuckets(target, source) {
   target.cacheWrite += source.cacheWrite;
   target.output += source.output;
   target.requests += source.requests;
-  // 费用字段只在启用定价时存在；保持无定价调用（测试/旧调用）的桶形状不变。
-  if (source.cost !== undefined || target.cost !== undefined) target.cost = (target.cost ?? 0) + (source.cost ?? 0);
-  if (source.pricedTokens !== undefined || target.pricedTokens !== undefined) target.pricedTokens = (target.pricedTokens ?? 0) + (source.pricedTokens ?? 0);
-  if (source.unpricedTokens !== undefined || target.unpricedTokens !== undefined) target.unpricedTokens = (target.unpricedTokens ?? 0) + (source.unpricedTokens ?? 0);
-  for (const field of WINDOW_FIELDS) {
-    if (source[field] !== undefined || target[field] !== undefined) target[field] = (target[field] ?? 0) + (source[field] ?? 0);
-  }
   return target;
 }
 
@@ -66,12 +54,6 @@ export function subtractBuckets(target, source) {
   target.cacheWrite -= source.cacheWrite;
   target.output -= source.output;
   target.requests -= source.requests;
-  if (source.cost !== undefined || target.cost !== undefined) target.cost = (target.cost ?? 0) - (source.cost ?? 0);
-  if (source.pricedTokens !== undefined || target.pricedTokens !== undefined) target.pricedTokens = (target.pricedTokens ?? 0) - (source.pricedTokens ?? 0);
-  if (source.unpricedTokens !== undefined || target.unpricedTokens !== undefined) target.unpricedTokens = (target.unpricedTokens ?? 0) - (source.unpricedTokens ?? 0);
-  for (const field of WINDOW_FIELDS) {
-    if (source[field] !== undefined || target[field] !== undefined) target[field] = (target[field] ?? 0) - (source[field] ?? 0);
-  }
   return target;
 }
 
@@ -203,8 +185,8 @@ function removeRoute(hours, hour, key, buckets) {
  * 折叠一个会话的完整事件列表。
  *
  * @param {Array<object>} events 持久化的 SessionEvent 列表（seq 顺序）
- * @param {{ tz?: number, pricing?: object, now?: number }} [options]
- *   `pricing` 为可选的定价器（`createPricing()`）；不传时桶形状保持纯 token 计数。
+ * @param {{ tz?: number, now?: number }} [options]
+ *   折叠只保存四个 token 桶；费率与汇率在查询时应用。
  * @returns {{
  *   hours: Map<string, Map<string, object>>,
  *   samples: number,
@@ -215,7 +197,6 @@ function removeRoute(hours, hour, key, buckets) {
  */
 export function foldSession(events, options = {}) {
   const tz = options.tz ?? 0;
-  const pricing = options.pricing;
   const now = options.now ?? Date.now();
   const hours = new Map();
   let last = null;
@@ -243,17 +224,6 @@ export function foldSession(events, options = {}) {
     const time = Number.isFinite(event.time) ? event.time : now;
     const hour = hourKey(time, tz);
     const buckets = bucketsOf(sample.usage);
-    if (pricing !== undefined) {
-      const estimate = pricing.estimate({ provider, model, timeMs: time, buckets });
-      buckets.cost = estimate.cost ?? 0;
-      buckets.pricedTokens = estimate.pricedTokens;
-      buckets.unpricedTokens = estimate.unpricedTokens;
-      // 峰/谷拆分保留 token 数；查询时换费率只需重新乘价格，不必重读日志。
-      const window = estimate.rate ?? (pricing.windowAt ? pricing.windowAt(time) : "offpeak");
-      for (const field of TOKEN_FIELDS) {
-        buckets[`${window}${field[0].toUpperCase()}${field.slice(1)}`] = buckets[field];
-      }
-    }
 
     if (last !== null && last.key === sample.key) {
       // 同一 (turn, step) 的最终样本替换早先的 chunk 样本：先从旧归属扣除。

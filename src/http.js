@@ -39,6 +39,7 @@ export const LOCAL_PATH = `${BASE_PATH}/local`;
 export const RECONCILE_PATH = `${BASE_PATH}/reconcile`;
 export const STATUS_PATH = `${BASE_PATH}/status`;
 export const PANEL_CSS_PATH = `${BASE_PATH}/panel.css`;
+export const PRICING_PATH = `${BASE_PATH}/pricing`;
 
 /* ---------------- 回环栅栏 ---------------- */
 
@@ -104,19 +105,8 @@ export function summaryQuery(url) {
 }
 
 export function officialQuery(url) {
-  let p;
-  try {
-    p = new URL(url ?? "/", "http://localhost").searchParams;
-  } catch {
-    return { range: "today" };
-  }
-  const range = p.get("range");
-  const allowed = new Set(["today", "yesterday", "last7", "last30", "thisMonth", "lastMonth"]);
-  return {
-    range: allowed.has(range) ? range : "today",
-    force: p.get("force") === "1" || p.get("force") === "true",
-    tz: tzOffsetSeconds(p.get("tz")),
-  };
+  const { range, from, to, force, tz } = localQuery(url);
+  return { range, from, to, force, tz };
 }
 
 /**
@@ -134,6 +124,7 @@ export function localQuery(url) {
   const allowed = new Set(["today", "yesterday", "last7", "last30", "thisMonth", "lastMonth"]);
   const from = isoDate(p.get("from"));
   const to = isoDate(p.get("to"));
+  if ((p.has("from") || p.has("to")) && (!from || !to)) throw new Error("bad-range");
   const custom = from !== null && to !== null;
   return {
     range: custom ? "custom" : allowed.has(rawRange) ? rawRange : "today",
@@ -146,42 +137,38 @@ export function localQuery(url) {
   };
 }
 
-/** 客户端费率编辑器的覆盖表；只接受有限大小的合法数字，失败时忽略并用默认表。 */
+/** 费率覆盖采用显式 USD schema；无效覆盖不能悄悄回退成另一种价格。 */
 export function parseRates(raw) {
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > 16_000) return null;
+  if (raw === null || raw === undefined) return null;
+  const invalid = () => { throw new Error("invalid-rates"); };
+  if (typeof raw !== "string" || !raw.length || raw.length > 200_000) return invalid();
   let value;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    return null;
+  try { value = JSON.parse(raw); } catch { return invalid(); }
+  if (!value || typeof value !== "object" || Array.isArray(value) || value.schema !== 2) return invalid();
+  if (typeof value.usdToCny !== "number" || !Number.isFinite(value.usdToCny) || value.usdToCny < 0) return invalid();
+  if (!value.models || typeof value.models !== "object" || Array.isArray(value.models)) return invalid();
+  const keys = Object.keys(value.models);
+  if (keys.length > 500) return invalid();
+  const models = {};
+  for (const key of keys) {
+    if (!/^[\w./:+ -]{1,160}$/.test(key) || ["__proto__", "constructor", "prototype"].includes(key)) return invalid();
+    const source = value.models[key];
+    if (!source || typeof source !== "object" || Array.isArray(source) || "peak" in source || "offpeak" in source) return invalid();
+    const price = {};
+    for (const field of ["input", "output", "cacheRead", "cacheWrite"]) {
+      const number = source[field];
+      if (typeof number !== "number" || !Number.isFinite(number) || number < 0) return invalid();
+      price[field] = number;
+    }
+    models[key] = price;
   }
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const out = {};
-  for (const key of Object.keys(value).slice(0, 100)) {
-    if (!/^[\w./:+ -]{1,160}$/.test(key) || key === "__proto__" || key === "constructor" || key === "prototype") continue;
-    const table = value[key];
-    if (table === null || typeof table !== "object" || Array.isArray(table)) continue;
-    const clean = (source) => {
-      if (source === null || typeof source !== "object" || Array.isArray(source)) return null;
-      const price = {};
-      for (const field of ["hit", "miss", "cacheWrite", "output"]) {
-        const number = source[field];
-        if (typeof number !== "number" || !Number.isFinite(number) || number < 0 || number > 1_000_000) return null;
-        price[field] = number;
-      }
-      return price;
-    };
-    const peak = clean(table.peak);
-    const offpeak = clean(table.offpeak);
-    if (peak === null || offpeak === null) continue;
-    out[key] = { currency: "CNY", peak, offpeak };
-  }
-  return Object.keys(out).length > 0 ? out : null;
+  return { schema: 2, usdToCny: value.usdToCny, models };
 }
 
 function isoDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  return Number.isFinite(Date.parse(`${value}T00:00:00Z`)) ? value : null;
+  const epoch = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(epoch) && new Date(epoch).toISOString().slice(0, 10) === value ? value : null;
 }
 
 /** 把 query 解析成 `{ from, to, granularity }`；自定义范围只按天。 */
@@ -199,13 +186,16 @@ export function localWindow(query, now = Date.now()) {
   };
 }
 
-function enforceLocalRange(from, to, lookback) {
+function enforceLocalRange(from, to, lookback, tz = tzOffsetSeconds(), now = Date.now()) {
   const start = Date.parse(`${from}T00:00:00Z`);
   const end = Date.parse(`${to}T00:00:00Z`);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error("bad-range");
-  if ((end - start) / 86_400_000 > 800) throw new Error("range-too-long");
+  if (!isoDate(from) || !isoDate(to) || end < start) throw new Error("bad-range");
+  if ((end - start) / 86_400_000 + 1 > 800) throw new Error("range-too-long");
+  const today = localDate(now / 1000, tz);
+  if (from > today) return;
   const [year, month] = from.split("-").map(Number);
-  enforceLookback(year, month, lookback);
+  const [currentYear, currentMonth] = today.split("-").map(Number);
+  if ((currentYear - year) * 12 + currentMonth - month > (lookback ?? 6)) throw new Error("lookback-exceeded");
 }
 
 
@@ -273,6 +263,7 @@ export function buildSummaryPayload(deps) {
   for (const row of amountRows) {
     const d = dayMap.get(row.date) ?? {
       date: row.date,
+      cacheWrite: 0,
       hit: 0,
       miss: 0,
       output: 0,
@@ -288,19 +279,22 @@ export function buildSummaryPayload(deps) {
     const byModel = d.models.find((m) => m.model === row.model);
     if (byModel) {
       byModel.tokens += tokens;
+      byModel.hit += row.hit;
+      byModel.miss += row.miss;
+      byModel.output += row.output;
       byModel.requests += row.requests;
     } else {
-      d.models.push({ model: row.model, tokens, requests: row.requests, cost: 0 });
+      d.models.push({ model: row.model, hit: row.hit, miss: row.miss, cacheWrite: 0, output: row.output, tokens, requests: row.requests, cost: 0 });
     }
     d.models = d.models.filter((m) => m.tokens > 0 || m.cost > 0);
     dayMap.set(row.date, d);
   }
   for (const c of costRows) {
-    const d = dayMap.get(c.date) ?? { date: c.date, hit: 0, miss: 0, output: 0, requests: 0, cost: 0, models: [] };
+    const d = dayMap.get(c.date) ?? { date: c.date, hit: 0, miss: 0, cacheWrite: 0, output: 0, requests: 0, cost: 0, models: [] };
     d.cost += c.cost;
     const model = d.models.find((m) => m.model === c.model);
     if (model) model.cost += c.cost;
-    else d.models.push({ model: c.model, tokens: 0, requests: 0, cost: c.cost });
+    else d.models.push({ model: c.model, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: c.cost });
     dayMap.set(c.date, d);
   }
 
@@ -330,7 +324,7 @@ export function buildSummaryPayload(deps) {
   const modelMap = new Map();
   for (const row of amountRows) {
     const m =
-      modelMap.get(row.model) ?? { model: row.model, hit: 0, miss: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
+      modelMap.get(row.model) ?? { model: row.model, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
     m.hit += row.hit;
     m.miss += row.miss;
     m.output += row.output;
@@ -339,7 +333,7 @@ export function buildSummaryPayload(deps) {
     modelMap.set(row.model, m);
   }
   for (const row of costRows) {
-    const m = modelMap.get(row.model) ?? { model: row.model, hit: 0, miss: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
+    const m = modelMap.get(row.model) ?? { model: row.model, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
     m.cost += row.cost;
     modelMap.set(row.model, m);
   }
@@ -372,6 +366,19 @@ export function buildSummaryPayload(deps) {
     models,
     user,
   };
+}
+
+function modelTotals(points) {
+  const models = new Map();
+  for (const point of points) for (const row of point.models ?? []) {
+    const model = models.get(row.model) ?? { model: row.model, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
+    for (const field of ["hit", "miss", "cacheWrite", "output"]) model[field] += row[field] ?? 0;
+    model.tokens += row.tokens ?? 0;
+    model.requests += row.requests ?? 0;
+    model.cost += row.cost ?? 0;
+    models.set(row.model, model);
+  }
+  return [...models.values()].sort((a, b) => b.tokens - a.tokens);
 }
 
 /* ---------------- 聚合：official 视图 payload ---------------- */
@@ -408,7 +415,8 @@ export function buildOfficialPayload(deps) {
   const modelMap = new Map();
   for (const day of window) {
     for (const row of day.models ?? []) {
-      const model = modelMap.get(row.model) ?? { model: row.model, tokens: 0, requests: 0, cost: 0 };
+      const model = modelMap.get(row.model) ?? { model: row.model, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
+      for (const field of ["hit", "miss", "cacheWrite", "output"]) model[field] += row[field] ?? 0;
       model.tokens += row.tokens ?? 0;
       model.requests += row.requests ?? 0;
       model.cost += row.cost ?? 0;
@@ -470,6 +478,7 @@ export function buildHourlyPayload(deps) {
         key: `${localDate(ts, tz)}T${hh}`,
         label: `${hh}:00`,
         hour: local.getUTCHours(),
+        cacheWrite: 0,
         hit: 0,
         miss: 0,
         output: 0,
@@ -487,34 +496,34 @@ export function buildHourlyPayload(deps) {
   const modelOf = (bucket, name) => {
     let model = bucket.models.get(name);
     if (!model) {
-      model = { model: name, tokens: 0, requests: 0, cost: 0 };
+      model = { model: name, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
       bucket.models.set(name, model);
     }
     return model;
   };
 
   for (const row of Array.isArray(amount?.rows) ? amount.rows : []) {
-    if (row.ts < start || row.ts >= end) continue;
+    if (row.ts < start || row.ts >= (deps.dataEnd ?? end)) continue;
     const bucket = ensure(row.ts);
     const model = modelOf(bucket, row.model);
     bucket.hit += row.hit;
     bucket.miss += row.miss;
     bucket.output += row.output;
     bucket.requests += row.requests;
+    model.hit += row.hit;
+    model.miss += row.miss;
+    model.output += row.output;
     model.tokens += row.hit + row.miss + row.output;
     model.requests += row.requests;
   }
   for (const row of Array.isArray(cost?.rows) ? cost.rows : []) {
-    if (row.ts < start || row.ts >= end) continue;
+    if (row.ts < start || row.ts >= (deps.dataEnd ?? end)) continue;
     const bucket = ensure(row.ts);
     bucket.cost += row.cost;
     modelOf(bucket, row.model).cost += row.cost;
   }
 
-  // 图表只画到「当前小时」，未来小时不占位（总量口径不变，未来桶本来就是 0）
-  const cutoff = localHourFloor(now / 1000, tz) + 3_600;
   const points = Array.from(buckets.values())
-    .filter((bucket) => bucket.ts < cutoff)
     .sort((a, b) => a.ts - b.ts)
     .map((bucket) => ({
       ...bucket,
@@ -531,7 +540,8 @@ export function buildHourlyPayload(deps) {
     totals.requests += point.requests;
     totals.cost += point.cost;
     for (const model of point.models) {
-      const acc = modelTotals.get(model.model) ?? { model: model.model, tokens: 0, requests: 0, cost: 0 };
+      const acc = modelTotals.get(model.model) ?? { model: model.model, hit: 0, miss: 0, cacheWrite: 0, output: 0, tokens: 0, requests: 0, cost: 0 };
+      for (const field of ["hit", "miss", "cacheWrite", "output"]) acc[field] += model[field] ?? 0;
       acc.tokens += model.tokens;
       acc.requests += model.requests;
       acc.cost += model.cost;
@@ -545,6 +555,7 @@ export function buildHourlyPayload(deps) {
     .sort((a, b) => b.tokens - a.tokens);
   const day = {
     date: range === "today" ? localDate(now / 1000, tz) : localDate(start, tz),
+    cacheWrite: 0,
     hit: totals.hit,
     miss: totals.miss,
     output: totals.output,
@@ -646,7 +657,7 @@ function byDateAsc(a, b) {
 }
 
 function emptyDay(date) {
-  return { date, hit: 0, miss: 0, output: 0, requests: 0, cost: 0 };
+  return { date, hit: 0, miss: 0, cacheWrite: 0, output: 0, requests: 0, cost: 0, models: [] };
 }
 
 function ratio(today, yesterday) {
@@ -744,7 +755,7 @@ function attachRoutes(ctx, httpServer, deps) {
             } catch (error) {
               const status = errorStatus(error);
               logger?.warn?.("deepseek-usage: %s failed: %s", path, error?.message ?? error);
-              send(res, status, { ok: false, error: error?.code ?? "internal" });
+              send(res, status, { ok: false, error: error?.code ?? (status === 400 ? error.message : "internal") });
             }
           },
         }),
@@ -774,6 +785,22 @@ function attachRoutes(ctx, httpServer, deps) {
     }
   };
 
+  // 所有窗口共享余额与上游并发额度，避免跨月查询触发请求风暴。
+  let active = 0;
+  const waiters = [];
+  const limited = async (job) => {
+    if (active >= 4) await new Promise((resolve) => waiters.push(resolve));
+    else active += 1;
+    try { return await job(); }
+    finally {
+      const next = waiters.shift();
+      if (next) next();
+      else active -= 1;
+    }
+  };
+  const loadBalance = (token, force) => cache.getOrFetch("official:balance", () => limited(() => api.fetchSummary(token)), { force, ttlMs: 60_000 });
+  const fetchRange = (method, token, window) => limited(() => api[method](token, window));
+
   /**
    * 拉当月全量并聚合。
    *
@@ -782,9 +809,20 @@ function attachRoutes(ctx, httpServer, deps) {
    * 和官方用量页对不上。这里按本地日桶取到「今天 0 点」，再把今天切小时补上。
    */
   const loadSummary = async ({ year, month, force, tz }) => {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const start = monthStartSec(year, month, tz);
-    const next = monthStartSec(year, month + 1, tz);
+    const now = Date.now();
+    const from = localDate(monthStartSec(year, month, tz), tz);
+    const to = localDate(monthStartSec(year, month + 1, tz) - 1, tz);
+    const official = await loadOfficialCustom({ from, to, force, tz, now });
+    const summary = buildSummaryPayload({ amountRows: [], costRows: [], user: official.user ?? {}, year, month, now });
+    const todayDate = localDate(now / 1000, tz);
+    const today = official.days.find((day) => day.date === todayDate) ?? emptyDay(todayDate);
+    const yesterdayDate = localDate(now / 1000 - 86_400, tz);
+    const yesterday = official.days.find((day) => day.date === yesterdayDate) ?? emptyDay(yesterdayDate);
+    return { ...summary, ...official, today: { ...today, deltaPct: ratio(today, yesterday) }, range: { year, month }, month: { tokens: official.tokens.total, cost: official.spent, requests: official.requests, hitRate: official.tokens.hitRate } };
+  };
+
+  const loadSlice = async ({ year, month, start, next, force, tz, now }) => {
+    const nowSec = Math.floor(now / 1000);
     const todayStart = localDayStart(nowSec, tz);
     const dailyEnd = Math.min(next, todayStart);
     const hourlyStart = Math.max(todayStart, start);
@@ -792,26 +830,27 @@ function attachRoutes(ctx, httpServer, deps) {
     const hourlyEnd = Math.min(localHourFloor(nowSec, tz) + 3_600, next);
     const hasDaily = dailyEnd > start;
     const hasHourly = hourlyEnd > hourlyStart;
-    const key = `summary:${year}-${month}:${tz}:${hasHourly ? hourlyEnd : 0}`;
+    const key = `official:slice:${start}:${next}:${tz}:${hasHourly ? hourlyEnd : 0}`;
     return cache.getOrFetch(
       key,
       () =>
         withAuth(async () => {
           const token = await requireToken();
-          const jobs = [api.fetchSummary(token)];
+          const jobs = [loadBalance(token, false)];
           if (hasDaily) {
-            jobs.push(api.fetchRangeAmount(token, { start, end: dailyEnd, tz }));
-            jobs.push(api.fetchRangeCost(token, { start, end: dailyEnd, tz }));
+            jobs.push(fetchRange("fetchRangeAmount", token, { start, end: dailyEnd, tz }));
+            jobs.push(fetchRange("fetchRangeCost", token, { start, end: dailyEnd, tz }));
           }
           if (hasHourly) {
-            jobs.push(api.fetchRangeAmount(token, { start: hourlyStart, end: hourlyEnd, tz }));
-            jobs.push(api.fetchRangeCost(token, { start: hourlyStart, end: hourlyEnd, tz }));
+            jobs.push(fetchRange("fetchRangeAmount", token, { start: hourlyStart, end: hourlyEnd, tz }));
+            jobs.push(fetchRange("fetchRangeCost", token, { start: hourlyStart, end: hourlyEnd, tz }));
           }
           const [user, ...rest] = await Promise.all(jobs);
           const amountRows = [];
           const costRows = [];
           for (let i = 0; i < rest.length; i += 2) {
             for (const row of rest[i].rows) {
+              if (row.ts < start || row.ts >= next || row.ts >= hourlyEnd) continue;
               amountRows.push({
                 date: localDate(row.ts, tz),
                 model: row.model,
@@ -822,6 +861,7 @@ function attachRoutes(ctx, httpServer, deps) {
               });
             }
             for (const row of rest[i + 1].rows) {
+              if (row.ts < start || row.ts >= next || row.ts >= hourlyEnd) continue;
               costRows.push({ date: localDate(row.ts, tz), model: row.model, cost: row.cost });
             }
           }
@@ -836,9 +876,9 @@ function attachRoutes(ctx, httpServer, deps) {
     const nowSec = Math.floor(now / 1000);
     const todayStart = localDayStart(nowSec, tz);
     const start = range === "today" ? todayStart : todayStart - 86_400;
-    // 和官方用量页一致：整天窗口（次日 0 点结束），未来小时由上游返回空桶。
-    // 这样「今天」的总量始终等于官方页面，含当前这一小时已产生的用量。
-    const end = start + 86_400;
+    const displayEnd = start + 86_400;
+    // 当前桶包含已产生的用量，之后的未来桶只在响应中补零。
+    const end = Math.min(displayEnd, localHourFloor(nowSec, tz) + 3_600);
     const key = `hourly:${tz}:${start}:${end}`;
     return cache.getOrFetch(
       key,
@@ -846,11 +886,11 @@ function attachRoutes(ctx, httpServer, deps) {
         withAuth(async () => {
           const token = await requireToken();
           const [user, amount, cost] = await Promise.all([
-            api.fetchSummary(token),
-            end > start ? api.fetchRangeAmount(token, { start, end, tz }) : { bucket: 3600, rows: [] },
-            end > start ? api.fetchRangeCost(token, { start, end, tz }) : { bucket: 3600, rows: [] },
+            loadBalance(token, force),
+            end > start ? fetchRange("fetchRangeAmount", token, { start, end, tz }) : { bucket: 3600, rows: [] },
+            end > start ? fetchRange("fetchRangeCost", token, { start, end, tz }) : { bucket: 3600, rows: [] },
           ]);
-          return buildHourlyPayload({ amount, cost, user, range, now, tz, start, end });
+          return buildHourlyPayload({ amount, cost, user, range, now, tz, start, end: displayEnd, dataEnd: end });
         }),
       { force, ttlMs: 60_000 }
     );
@@ -861,31 +901,36 @@ function attachRoutes(ctx, httpServer, deps) {
     if (range === "today" || range === "yesterday") {
       return loadHourly({ range, force, tz, now });
     }
-    const months = monthsForRange(range, now, tz);
-    for (const { year, month } of months) enforceLookback(year, month, deps.lookbackMonths);
-    const summaries = await Promise.all(
-      months.map(({ year, month }) => loadSummary({ year, month, force, tz }))
-    );
-    const latest = summaries[summaries.length - 1] ?? {};
-    const summary = { ...latest, days: summaries.flatMap((item) => item.days ?? []) };
-    return buildOfficialPayload({ summary, range, now, tz });
+    const window = officialRangeWindow(range, now, tz);
+    return loadOfficialCustom({ ...window, range, force, tz, now });
   };
 
-  /** 自定义日期范围的官方日数据（/reconcile 用；/official 本身只接预设范围）。 */
-  const loadOfficialCustom = async ({ from, to, force, tz, now }) => {
-    const months = monthsBetweenDates(from, to);
-    for (const { year, month } of months) enforceLookback(year, month, deps.lookbackMonths);
-    const summaries = await Promise.all(
-      months.map(({ year, month }) => loadSummary({ year, month, force, tz }))
-    );
-    const days = summaries
-      .flatMap((item) => item.days ?? [])
-      .filter((day) => day.date >= from && day.date <= to)
-      .sort(byDateAsc);
+  /** 所选范围按自然月切片；未来日期只在展示层补零。 */
+  const loadOfficialCustom = async ({ from, to, range = "custom", force, tz, now }) => {
+    enforceLocalRange(from, to, deps.lookbackMonths, tz, now);
+    const today = localDate(now / 1000, tz);
+    const actualTo = to < today ? to : today;
+    const summaries = [];
+    if (from <= actualTo) {
+      if (force) await withAuth(async () => loadBalance(await requireToken(), true));
+      const pages = await Promise.all(monthsBetweenDates(from, actualTo).map(({ year, month }) => {
+        const start = Math.max(monthStartSec(year, month, tz), Date.parse(`${from}T00:00:00Z`) / 1000 - tz);
+        const next = Math.min(monthStartSec(year, month + 1, tz), Date.parse(`${actualTo}T00:00:00Z`) / 1000 - tz + 86_400);
+        return loadSlice({ year, month, start, next, force, tz, now });
+      }));
+      summaries.push(...pages);
+    }
+    const source = new Map(summaries.flatMap((item) => item.days ?? []).filter((day) => day.date >= from && day.date <= actualTo).map((day) => [day.date, day]));
+    const days = [];
+    for (let ms = Date.parse(`${from}T00:00:00Z`), last = Date.parse(`${to}T00:00:00Z`); ms <= last; ms += 86_400_000) {
+      const date = new Date(ms).toISOString().slice(0, 10);
+      days.push(source.get(date) ?? emptyDay(date));
+    }
     const points = days.map((day) => {
       const tokens = (day.hit ?? 0) + (day.miss ?? 0) + (day.output ?? 0);
       return {
         date: day.date,
+        cacheWrite: 0,
         hit: day.hit ?? 0,
         miss: day.miss ?? 0,
         output: day.output ?? 0,
@@ -909,12 +954,18 @@ function attachRoutes(ctx, httpServer, deps) {
     );
     return {
       ok: true,
-      range: "custom",
+      range,
+      version: VERSION,
+      currency: "CNY",
+      balance: summaries.at(-1)?.balance ?? null,
+      consumedTotal: summaries.at(-1)?.user?.consumedTotal ?? null,
+      user: summaries.at(-1)?.user ?? null,
+      models: modelTotals(points),
       granularity: "day",
       points,
       days: points,
       window: { from, to },
-      tokens: { total: totals.tokens, hit: totals.hit, miss: totals.miss, output: totals.output },
+      tokens: { total: totals.tokens, hit: totals.hit, miss: totals.miss, output: totals.output, hitRate: safeDiv(totals.hit, totals.hit + totals.miss) },
       requests: totals.requests,
       spent: totals.cost,
       fetchedAt: now,
@@ -960,15 +1011,22 @@ function attachRoutes(ctx, httpServer, deps) {
     local: local ? local.status(tzOffsetSeconds()) : { available: false },
   }));
 
+  route(PRICING_PATH, async () => {
+    if (!deps.pricing) throw Object.assign(new Error("pricing-unavailable"), { code: "pricing-unavailable" });
+    return { ok: true, ...deps.pricing.meta(), schema: 2, currency: "USD", unit: "USD_PER_MILLION_TOKENS", models: deps.pricing.tables(), names: deps.pricing.names ? deps.pricing.names() : {} };
+  });
+
   route(SUMMARY_PATH, async (req) => {
     const { year, month, force, tz } = summaryQuery(req.url);
-    enforceLookback(year, month, deps.lookbackMonths);
     return loadSummary({ year, month, force, tz });
   });
 
   route(OFFICIAL_PATH, async (req) => {
-    const { range, force, tz } = officialQuery(req.url);
-    return loadOfficial({ range, force, tz, now: Date.now() });
+    const query = officialQuery(req.url);
+    const now = Date.now();
+    return query.range === "custom"
+      ? loadOfficialCustom({ ...query, now })
+      : loadOfficial({ ...query, now });
   });
 
   route(LOCAL_PATH, async (req) => {
@@ -978,7 +1036,7 @@ function attachRoutes(ctx, httpServer, deps) {
     const query = localQuery(req.url);
     const now = Date.now();
     const window = localWindow(query, now);
-    enforceLocalRange(window.from, window.to, deps.lookbackMonths);
+    enforceLocalRange(window.from, window.to, deps.lookbackMonths, query.tz, now);
     const payload = await local.query({
       ...window,
       tz: query.tz,
@@ -997,7 +1055,7 @@ function attachRoutes(ctx, httpServer, deps) {
     const reconcileScope = new URL(req.url ?? "/", "http://localhost").searchParams.get("scope") === "all" ? "all" : "deepseek";
     const now = Date.now();
     const window = localWindow(query, now);
-    enforceLocalRange(window.from, window.to, deps.lookbackMonths);
+    enforceLocalRange(window.from, window.to, deps.lookbackMonths, query.tz, now);
 
     let localPayload = null;
     let localError = null;
@@ -1050,15 +1108,6 @@ function attachRoutes(ctx, httpServer, deps) {
   });
 }
 
-function enforceLookback(year, month, lookback) {
-  const L = lookback ?? 6;
-  const now = new Date();
-  const cur = now.getFullYear() * 12 + (now.getMonth() + 1);
-  const target = year * 12 + month;
-  if (target > cur) throw new Error("future-month-forbidden");
-  if (cur - target > L) throw new Error("lookback-exceeded");
-}
-
 function errorStatus(error) {
   if (error?.code === "unauthenticated") return 401;
   if (error?.code === "forbidden") return 403;
@@ -1067,7 +1116,8 @@ function errorStatus(error) {
     error?.message === "future-month-forbidden" ||
     error?.message === "lookback-exceeded" ||
     error?.message === "bad-range" ||
-    error?.message === "range-too-long"
+    error?.message === "range-too-long" ||
+    error?.message === "invalid-rates"
   ) {
     return 400;
   }
