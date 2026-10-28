@@ -1,6 +1,5 @@
 /**
- * UI 契约测试 —— 面板样式来自 UI 稿 deepseek-usage-popup 2.html，
- * 由 scripts/build-panel-css.mjs 生成后注入宿主文档。
+ * UI 契约测试 —— 面板样式注入宿主文档，保持作用域和结构类名稳定。
  *
  * 这里守两件事：
  *   1. 样式表不许有全局规则（:root / body / * reset），否则会污染 DSH 自己的界面；

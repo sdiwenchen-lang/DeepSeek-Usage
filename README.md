@@ -27,7 +27,7 @@ DeepMeter 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧
 - **用量日历**：当月每日 Token 热力图，5 级深浅，可翻月。
 - **筛选**：时间范围（今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月）、模型多选。
 
-今日数据按小时展示（和官方用量页同源：`usage/by_api_key` + 本地时区桶）；界面严格对齐设计稿 `deepseek-usage-popup 2.html`，前端约定见 [`docs/FRONTEND-SPEC.md`](docs/FRONTEND-SPEC.md)；样式由 `scripts/build-panel-css.mjs` 生成——类名 `d-`、令牌 `--d-`、全部规则收在 `.d-usage` 作用域，不污染宿主。
+今日数据按小时展示（和官方用量页同源：`usage/by_api_key` + 本地时区桶）；样式已固化在 `src/panel.css`，类名使用 `d-` 前缀、令牌使用 `--d-` 前缀，全部规则收在 `.d-usage` 作用域，不污染宿主。
 
 ## 数据从哪来（不需要登录）
 
@@ -161,8 +161,6 @@ DeepSeek-Usage/
 │   ├── client.js       # 浏览器半边：__ModuleLoader__ bundle，React 组件与图表（纯 SVG）
 │   └── panel.css       # 面板样式（由 /panel.css 下发）
 ├── test/               # 126 个用例，node --test，无外部依赖
-├── docs/HOST-CONTRACT.md  # 与 DSH 宿主对接的契约与踩坑记录
-├── docs/LOCAL-AGGREGATION.md # 本地聚合设计与实现记录
 ├── cordis.patch.yml    # bundle 补丁（安装入口）
 └── package.json
 ```

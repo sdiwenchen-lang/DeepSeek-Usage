@@ -1,6 +1,6 @@
 /**
 * DeepMeter — 浏览器半边（__ModuleLoader__ bundle）。
-* 视觉严格对齐 UI 稿 deepseek-usage-popup 2.html；点侧边栏「用量」开居中弹窗。
+* 点侧边栏「用量」开居中弹窗，样式由 src/panel.css 提供。
 * 不提供登录：账号由服务端读宿主已登录的 DeepSeek 账号记录。
 *
 * @module deepseek-usage/client

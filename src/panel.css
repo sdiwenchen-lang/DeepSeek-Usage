@@ -1,4 +1,4 @@
-/* DeepMeter 面板样式 —— 由 scripts/build-panel-css.mjs 从 UI 稿生成，勿手改。
+/* DeepMeter 面板样式。
    全部规则收在 .d-usage 作用域内；类名与令牌统一 d- 前缀。 */
 .d-usage {
 color-scheme: light;
