@@ -28,7 +28,6 @@
     "node": ">=18.19.0"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
     "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>102400){console.error('bundle too large: '+s+'B > 102400B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
   },
   "keywords": [

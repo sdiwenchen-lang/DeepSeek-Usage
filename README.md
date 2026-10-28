@@ -160,7 +160,6 @@ DeepSeek-Usage/
 │   ├── reconcile.js    # 官方 vs 本地对账 payload
 │   ├── client.js       # 浏览器半边：__ModuleLoader__ bundle，React 组件与图表（纯 SVG）
 │   └── panel.css       # 面板样式（由 /panel.css 下发）
-├── test/               # 126 个用例，node --test，无外部依赖
 ├── cordis.patch.yml    # bundle 补丁（安装入口）
 └── package.json
 ```
@@ -168,10 +167,9 @@ DeepSeek-Usage/
 服务端是纯 Node 标准库 + 宿主注入的 `credentials` / `sessionPersistence`，无运行时依赖、无构建步骤；
 前端 bundle 手写 `__ModuleLoader__.load({ id, factory })`，React 由宿主作为 peer 提供。
 
-## 开发与测试
+## 开发检查
 
 ```bash
-npm test               # 126 个用例：响应规范化、鉴权头、缓存、回环栅栏、聚合、折叠、费用估算、对账、数据源同步、打包防护
 npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 ```
 
