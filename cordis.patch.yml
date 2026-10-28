@@ -1,0 +1,36 @@
+# The DeepSeek Usage bundle patch.
+#
+# Adding `deepseek-usage` to a profile's `dsh.profile.bundles` applies this
+# automatically — there is no YAML for a user to hand-write.
+#
+# Configuration is optional. Defaults work for the common case; override only
+# what you need:
+#
+#   - id: deepseek-usage
+#     config:
+#       xAppVersion: "0.1.0"        # sent as x-app-version header to upstream
+#       requestTimeoutMs: 10000    # per upstream request
+#       cacheTtlMs: 600000         # 10 minutes
+#       lookbackMonths: 24          # how far back month nav goes
+#       pricing:                    # optional server-side default rates
+#         enabled: true             # false => local spend shows 暂无可用费率
+#         # models:                 # override CNY per 1M tokens
+#         #   deepseek-v4-pro:
+#         #     peak:    { miss: 9, hit: 0.3, cacheWrite: 0, output: 27 }
+#         #     offpeak: { miss: 4.5, hit: 0.15, cacheWrite: 0, output: 13.5 }
+#         # holidays: ["2026-10-01", ["2026-10-01", "2026-10-07"]]
+#         # 默认高峰：工作日 08:00–12:00、14:00–18:00（Asia/Shanghai）
+#
+# The entry name is the BARE package name, deliberately. The client-module
+# scanner treats it as a package specifier and resolves `<name>/package.json`;
+# a subpath such as `deepseek-usage/plugin` fails that resolve, is cached as
+# "not a client package", and the panel silently never loads.
+- insert:
+    - id: deepseek-usage
+      name: deepseek-usage
+      config:
+        xAppVersion: "0.1.0"
+        requestTimeoutMs: 10000
+        cacheTtlMs: 600000
+        lookbackMonths: 24
+        retryBackoffMs: [1000, 2000, 4000]

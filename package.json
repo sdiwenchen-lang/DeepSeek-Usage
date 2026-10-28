@@ -1,0 +1,72 @@
+{
+  "name": "deepseek-usage",
+  "version": "0.1.0",
+  "description": "DeepSeek 官方口径的账户余额与每日 Token 用量 —— DeepSeek Harness 插件：点侧边栏「用量」弹出居中的用量与余额面板，数据直接复用 DSH 里已登录的 DeepSeek 账号",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sdiwenchen-lang/DeepSeek-Usage.git"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./plugin": "./src/index.js",
+    "./client": "./src/client.js",
+    "./account": "./src/account.js",
+    "./apiclient": "./src/apiclient.js",
+    "./cache": "./src/cache.js",
+    "./http": "./src/http.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=18.19.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>102400){console.error('bundle too large: '+s+'B > 102400B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "official-usage",
+    "billing",
+    "dsh-bundle",
+    "cordis-plugin"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "react": "^18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "react": "^18.2.0"
+  }
+}
