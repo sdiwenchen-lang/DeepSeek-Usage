@@ -1,0 +1,55 @@
+# ===== 密钥与本地配置（最重要：公开仓库绝不可提交）=====
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+config.local.*
+secrets.*
+credentials.*
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node =====
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# ===== 构建产物 =====
+dist/
+build/
+*.egg
+*.whl
+out/
+
+# ===== 本地运行数据（账单/用量缓存，可能含隐私）=====
+*.db
+*.sqlite
+*.sqlite3
+.data/
+cache/
+logs/
+*.log
+
+# ===== IDE / 系统 =====
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ===== 临时文件 =====
+*.tmp
+*.swp
+*~

@@ -1,0 +1,71 @@
+#!/bin/sh
+# 密钥泄露防护：提交前扫描暂存区，命中高危模式直接阻断
+# 绕过方式（仅在你确认无风险时）：git commit --no-verify
+
+set -u
+
+BLOCK=0
+
+# 需要扫描的暂存文件（排除钩子自身与 .gitignore）
+FILES=$(git diff --cached --name-only --diff-filter=ACM \
+  | grep -vE '^(\.githooks/|\.gitignore$)' || true)
+
+[ -z "$FILES" ] && exit 0
+
+# 用法: check "描述" "ereg模式" [i]   —— 第三参数 i 表示忽略大小写
+check() {
+  desc="$1"
+  pattern="$2"
+  icase="${3:-}"
+
+  if [ "$icase" = "i" ]; then
+    hits=$(scan_grep -iE "$pattern")
+  else
+    hits=$(scan_grep -E "$pattern")
+  fi
+
+  if [ -n "$hits" ]; then
+    echo "  [$desc]"
+    printf '%s\n' "$hits"
+    BLOCK=1
+  fi
+}
+
+scan_grep() {
+  printf '%s\n' "$FILES" | while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    git diff --cached -U0 -- "$f" \
+      | grep -E '^\+' \
+      | grep -vE '^\+\+\+' \
+      | grep "$@" \
+      | sed "s|^|  $f |"
+  done
+}
+
+echo ">> 扫描暂存区密钥特征..."
+
+check "OpenAI / DeepSeek 风格 key" 'sk-[A-Za-z0-9_-]{16,}'
+check "GitHub token"               'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}'
+check "AWS Access Key"             'AKIA[0-9A-Z]{16}'
+check "Slack token"                'xox[abprs]-[A-Za-z0-9-]{10,}'
+check "私钥文件内容"                'BEGIN (RSA|EC|OPENSSH|PGP|DSA) PRIVATE KEY'
+check "其他服务 token"              'AIza[0-9A-Za-z_-]{30,}|sk_live_[0-9A-Za-z]{20,}|sk-ant-[A-Za-z0-9_-]{20,}'
+check "硬编码凭据赋值"              '(api[_-]?key|secret|passwd|password|access[_-]?token|auth[_-]?token)[[:space:]]*[:=][[:space:]]*["]?[A-Za-z0-9_/+.-]{20,}' i
+
+if [ "$BLOCK" -eq 1 ]; then
+  cat <<'EOF'
+
+提交已阻断：检测到疑似密钥/凭据。
+
+修复建议：
+  1. 把密钥移到 .env（已在 .gitignore 中），代码里读环境变量
+  2. 提供 .env.example 只写变量名，不写值
+  3. 确认误报可用: git commit --no-verify
+
+注意：密钥一旦进入公开仓库历史，即视为已泄露，必须去对应平台吊销并重新生成。
+EOF
+  exit 1
+fi
+
+echo ">> 通过，未发现密钥特征"
+exit 0
