@@ -5,6 +5,14 @@
 
 ---
 
+## 界面预览
+
+![在 DSH 中打开用量面板](assets/screenshots/overview.png)
+
+| 用量趋势 | 用量日历 | 侧边栏标签 |
+| --- | --- | --- |
+| ![用量趋势](assets/screenshots/usage-trend.png) | ![用量日历](assets/screenshots/calendar.png) | ![侧边栏标签](assets/screenshots/sidebar-settings.png) |
+
 ## 它是什么
 
 DeepMeter 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧了多少、余额还剩多少、官方账单和本地日志差多少。
