@@ -37,4 +37,7 @@
         requestTimeoutMs: 10000
         cacheTtlMs: 600000
         lookbackMonths: 24
-        retryBackoffMs: [1000, 2000, 4000]
+        retryBackoffMs:
+          - 1000
+          - 2000
+          - 4000
