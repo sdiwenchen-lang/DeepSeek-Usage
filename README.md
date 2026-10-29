@@ -78,20 +78,19 @@ handle.close()
 
 ## 安装
 
-DeepSeek Usage 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profile>/`）：
+从 npm 安装：
 
-```jsonc
-// package.json → dependencies
-"deepseek-usage": "link:/Users/sdiwen/IdeaProjects/DeepSeek-Usage"
+```bash
+dsh plugin --profile web add deepseek-usage
 ```
 
-```yaml
-# cordis.patch.yml → dsh.profile.bundles
-- id: deepseek-usage-panel
-  name: deepseek-usage
+也可以从源码安装（开发调试）：
+
+```bash
+dsh plugin --profile web add github:sdiwenchen-lang/DeepSeek-Usage
 ```
 
-改完**重启 DSH** 生效：客户端 bundle 在启动时一次性加载。装好后侧边栏多出一枚
+装好后**重启 DSH** 生效：客户端 bundle 在启动时一次性加载。侧边栏会多出一枚
 「DeepSeek Usage · 用量」按钮，点开即是面板。
 
 > 刚启动的那一屏可能还没有第三方插件的入口：桌面端窗口先于宿主插件图加载，客户端会
