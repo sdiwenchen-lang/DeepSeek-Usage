@@ -85,7 +85,7 @@ handle.close()
 在 App 内操作：
 
 1. 打开 **设置 → 插件**
-2. 点 **安装插件**
+2. 点右上角的 **+ / Add plugin**
 3. 输入 npm 包名 `deepseek-usage`
 4. 安装完成后完全退出并重开 DSH（⌘Q）
 
