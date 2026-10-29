@@ -22,7 +22,8 @@
     "src",
     "cordis.patch.yml",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=18.19.0"
