@@ -78,6 +78,19 @@ handle.close()
 
 ## 安装
 
+### DSH 桌面 App（官方客户端）
+
+桌面 App 的 `desktop` profile 由 Electron 独占，**不能**用 `dsh plugin --profile desktop` 安装（会报 `profile "desktop" is managed exclusively by the Electron application`）。
+
+在 App 内操作：
+
+1. 打开 **设置 → 插件**
+2. 点 **安装插件**
+3. 输入 npm 包名 `deepseek-usage`
+4. 安装完成后完全退出并重开 DSH（⌘Q）
+
+### Web 版 / CLI
+
 先确认 `dsh` 命令可用（DSH 桌面 App 不自带 CLI）：
 
 ```bash
@@ -90,22 +103,16 @@ dsh --version
 npm install -g @deepseek-ai/dsh@0.2.1-rc.3
 ```
 
-然后按**实际使用的 profile** 安装。桌面 App 常见为 `desktop`，Web 版为 `web`：
+然后按实际使用的 profile 安装（Web 版是 `web`）：
 
 ```bash
-dsh plugin --profile desktop add deepseek-usage
-```
-
-不确定 profile 名时，先列出目录，把 `desktop` 换成实际名称：
-
-```bash
-ls ~/.dsh/profiles
+dsh plugin --profile web add deepseek-usage
 ```
 
 从源码安装（开发调试）：
 
 ```bash
-dsh plugin --profile desktop add github:sdiwenchen-lang/DeepSeek-Usage
+dsh plugin --profile web add github:sdiwenchen-lang/DeepSeek-Usage
 ```
 
 装好后**重启 DSH** 生效：客户端 bundle 在启动时一次性加载。侧边栏会多出一枚
