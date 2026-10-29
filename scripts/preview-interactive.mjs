@@ -9,7 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
 const pricing = createPricing({ usdToCny: 6.7 });
 const prices = { ok: true, ...pricing.meta(), models: pricing.tables(), names: pricing.names(), fixture: true };
-assert(Object.keys(prices.models).length >= 200);
+assert(Object.keys(prices.models).length >= 40);
 const runtimeRoot = 'node_modules/';
 if (!existsSync(runtimeRoot + 'react/umd/react.production.min.js')) {
   console.error('需要先安装开发依赖：npm install');
@@ -62,7 +62,7 @@ function boot(pricing) {
     const rates = { ...pricing.models, ...(custom.models || {}) }, fx = custom.usdToCny === undefined ? pricing.usdToCny : custom.usdToCny;
     for (let date = from, i = 0; date <= to && date <= today && i < 370; date = add(date, 1), i++) {
       const seed = Number(date.split('-').join(''));
-      const names = local ? ['deepseek-chat', 'deepseek-reasoner', 'claude-sonnet-4-6'] : ['deepseek-chat', 'deepseek-reasoner'];
+      const names = local ? ['deepseek-chat', 'deepseek-reasoner', 'claude-sonnet-5-5'] : ['deepseek-chat', 'deepseek-reasoner'];
       const models = names.map((model, j) => {
         const scale = local ? 0.87 : 1;
         const hit = Math.round((240000 + seed % 97000 + j * 22000) * scale), miss = Math.round((97000 + seed % 47000) * scale), output = Math.round((71000 + seed % 33000) * scale), cacheWrite = local && j === 2 ? 18000 : 0;

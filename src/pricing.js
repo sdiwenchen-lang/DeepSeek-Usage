@@ -34,6 +34,7 @@ export function createPricer(opts = {}) {
   const cacheReadZero = opts.cacheReadZero === "input" ? "input" : "respect";
   const byId = new Map(), byKey = new Map(), byName = new Map();
   const conflicts = [];
+  const hidden = new Set((opts.hidden ?? []).map((id) => String(id).trim().toLowerCase()).filter(Boolean));
   if (!Array.isArray(snapshot?.models)) throw new TypeError("snapshot.models must be an array");
   if (snapshot.unit && snapshot.unit !== "USD_PER_MILLION_TOKENS") throw new TypeError("unsupported pricing unit");
   for (const row of snapshot.models) {
@@ -45,6 +46,7 @@ export function createPricer(opts = {}) {
     for (const key of PRICE_FIELDS) nonnegative(entry[key], `${id}.${key}`);
     if (cacheRead === 0 && cacheReadZero === "input") entry.cacheRead = input;
     const raw = id.trim().toLowerCase();
+    if (hidden.has(raw)) continue;
     if (byId.has(raw)) throw new TypeError(`duplicate pricing model: ${id}`);
     byId.set(raw, entry);
     const key = normalizeModelKey(id);
@@ -107,6 +109,7 @@ export function createPricing(config = {}) {
     const previous = models.get(canonical);
     models.set(canonical, [canonical, previous?.[1] ?? canonical, ...PRICE_FIELDS.map((field) => rates[field])]);
   }
+  for (const id of config.hidden ?? []) models.delete(String(id).trim().toLowerCase());
   const snapshot = { ...(config.snapshot ?? DEFAULT_SNAPSHOT), models: [...models.values()] };
   const pricer = createPricer({ ...config, snapshot });
   const fxReady = pricer.meta.usdToCny > 0;

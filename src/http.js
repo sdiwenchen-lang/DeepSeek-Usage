@@ -149,6 +149,12 @@ export function parseRates(raw) {
   if (!value.models || typeof value.models !== "object" || Array.isArray(value.models)) return invalid();
   const keys = Object.keys(value.models);
   if (keys.length > 500) return invalid();
+  if (value.hidden !== undefined && (!Array.isArray(value.hidden) || value.hidden.length > 500)) return invalid();
+  const hidden = [];
+  for (const id of value.hidden ?? []) {
+    if (typeof id !== "string" || !/^[\w./:+ -]{1,160}$/.test(id) || ["__proto__", "constructor", "prototype"].includes(id)) return invalid();
+    if (!hidden.includes(id)) hidden.push(id);
+  }
   const models = {};
   for (const key of keys) {
     if (!/^[\w./:+ -]{1,160}$/.test(key) || ["__proto__", "constructor", "prototype"].includes(key)) return invalid();
@@ -162,7 +168,7 @@ export function parseRates(raw) {
     }
     models[key] = price;
   }
-  return { schema: 2, usdToCny: value.usdToCny, models };
+  return { schema: 2, usdToCny: value.usdToCny, models, hidden };
 }
 
 function isoDate(value) {

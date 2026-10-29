@@ -18,10 +18,8 @@ DeepMeter 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧
   跟随当前数据源；本地模式不显示约等号，金额注明按当前费率估算（日志覆盖可能不完整，
   不声称与账单等价），费率可在面板里按模型增改；侧栏标签可直接拖拽排序，也可上传图标；
   余额仍读取官方账户余额，和本地日志范围无关。
-- **官方 vs 本地对账**：同一范围内并排显示官方 DeepSeek 账单、本地 DeepSeek
-  路由与覆盖率，可展开逐日/逐小时明细；本地主视图含全部 Provider，对账条只比较 DeepSeek 路由，
-  避免把中转/OpenAI 混进官方账单口径；官方未登录时降级为只显示本地，不整体报错。
-- **本地费用估算**：内置 228 个模型的 USD 快照，缓存命中 / 未命中输入 / 缓存写入 / 输出四个桶分别计价，不按时段切换；面板内可编辑单价及美元兑人民币汇率，汇率默认 6.7（常用中间价），本地金额统一折算人民币。未定价模型显示「暂无费率」，不按 0 元计入。
+- **本地 AI 聚合**：读取本机 DSH 会话日志，按全部 Provider 汇总 Token、请求与费用；官方模式保留账户余额，本地模式聚焦本地日志，不混入官方账单口径。
+- **本地费用估算**：内置 42 个主流模型的 USD 快照，缓存命中 / 未命中输入 / 缓存写入 / 输出四个桶分别计价，不按时段切换；面板内可按模型编辑单价、删除或恢复模型；删除默认模型按未计价处理，本地金额按 USD→CNY 汇率折算，汇率默认 6.7，可在「显示设置 → 定价」直接修改。未定价模型显示「暂无费率」，不按 0 元计入。
 - **用量日历**：当月每日 Token 热力图，5 级深浅，可翻月。
 - **筛选**：时间范围（今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月）、模型多选。
 
@@ -121,9 +119,9 @@ DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profil
         #     cacheWrite: 1.25
 ```
 
-默认费率来自 `src/pricing.snapshot.json`，快照日期 2026-10-28，共 228 个唯一模型；美元兑人民币默认按 6.7 估算，可在设置里修改。DeepSeek 采用高峰价（USD / 百万 Tokens，命中 / 未命中 / 输出）：V4.1 Flash `0.006 / 0.30 / 1.20`，V4 Flash（旧版/兼容）`0.014 / 0.44 / 1.32`，V4 Pro `0.044 / 1.32 / 3.96`；面板不区分峰谷时段。在「显示设置 → 定价 → 管理定价…」中可搜索、编辑或添加模型、恢复默认费率，并修改汇率；浏览器只保存 USD 稀疏覆盖。旧人民币峰谷配置保留但不直接迁移。
+默认费率来自 `src/pricing.snapshot.json`，快照日期 2026-10-28，共 42 个主流模型（已剔除非主流供应商、旧版本和预览版，保留现有主流模型的兼容别名）；美元兑人民币默认按内置 6.7 估算。DeepSeek 采用高峰价（USD / 百万 Tokens，命中 / 未命中 / 输出）：V4.1 Flash `0.006 / 0.30 / 1.20`，V4 Flash（旧版/兼容）`0.014 / 0.44 / 1.32`，V4 Pro `0.044 / 1.32 / 3.96`；面板不区分峰谷时段。汇率可在「显示设置 → 定价」直接点击修改；在「管理定价…」中可搜索、编辑或添加模型，可勾选行批量删除或点行尾垃圾桶删除；删除默认模型会将其从定价列表隐藏并按未计价处理，工具栏可恢复默认费率与全部模型；浏览器只保存 USD 稀疏覆盖和本地隐藏列表。旧人民币峰谷配置保留但不直接迁移。
 
-公式为 `(未命中输入×input + 输出×output + 缓存命中×cacheRead + 缓存写入×cacheWrite) / 1,000,000` 美元，再按汇率换算为人民币（默认 6.7）。「消费金额」卡只显示人民币金额，点击不跳转；汇率在设置里用独立小弹窗修改，保存后立即重算。未知模型不当免费；空/未来用量为零。部分已定价的金额仅代表已覆盖部分，响应标记 `complete: false` 和 `unpricedModels`。修改费率或汇率会重算已缓存 Token，不重读未变化日志。
+公式为 `(未命中输入×input + 输出×output + 缓存命中×cacheRead + 缓存写入×cacheWrite) / 1,000,000` 美元，再按内置 6.7 的汇率换算为人民币。「消费金额」卡只显示人民币金额，点击不跳转。未知模型不当免费；空/未来用量为零。部分已定价的金额仅代表已覆盖部分，响应标记 `complete: false` 和 `unpricedModels`。修改费率会重算已缓存 Token，不重读未变化日志。
 
 ## 插件自有端点
 
@@ -136,9 +134,9 @@ DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profil
 | `GET /api/deepseek-usage/status` | 数据源状态：是否检测到账号、数据源引用、是否降级 |
 | `GET /api/deepseek-usage/summary?year=&month=` | 余额 + 指定月份逐日逐模型用量与汇总（日历页数据） |
 | `GET /api/deepseek-usage/official?range=today\|yesterday\|last7\|last30\|thisMonth\|lastMonth` | 官方用量；也接受 `from=YYYY-MM-DD&to=YYYY-MM-DD&tz=`（最多 800 天）。按自然月精确分片，保留首尾部分月份，未来日期补零且不请求上游 |
-| `GET /api/deepseek-usage/local?range=…&scope=all\|deepseek&tz=&rates=` | 本地会话日志的逐日/逐小时 Token、模型、Provider、缓存命中率、coverage 与 `cost` / `costMeta`（当前费率估算）；默认 `scope=all`，`rates` 可覆盖费率；也接受 `from=&to=` 自定义范围 |
+| `GET /api/deepseek-usage/local?range=…&scope=all\|deepseek&tz=&rates=` | 本地会话日志的逐日/逐小时 Token、模型、Provider、缓存命中率、coverage 与 `cost` / `costMeta`（当前费率估算）；默认 `scope=all`，`rates` 可覆盖费率，`hidden` 列表按未计价处理；也接受 `from=&to=` 自定义范围 |
 | `GET /api/deepseek-usage/reconcile?range=…&scope=…` | 同一范围官方 vs 本地：覆盖率、差额、逐日/逐小时对账；官方未登录或本地不可用时降级一侧 |
-| `GET /api/deepseek-usage/panel.css` | 面板样式表（约 69KB，独立下发，见「体积预算」） |
+| `GET /api/deepseek-usage/panel.css` | 面板样式表（约 90KB，独立下发，见「体积预算」） |
 
 ## 代码结构
 
@@ -153,7 +151,7 @@ DeepSeek-Usage/
 │   ├── local-fold.js   # 纯折叠：usage 事件 → 小时/route 桶；同 (turn, step) 替换
 │   ├── local.js        # 本地数据源：sessionPersistence 扫描、revision 缓存、范围聚合
 │   ├── pricing.js      # 四通道 USD 费率、显式 FX、缓存分析与费用覆盖率
-│   ├── pricing.snapshot.json # 228 模型离线默认费率
+│   ├── pricing.snapshot.json # 42 个主流模型离线默认费率
 │   ├── reconcile.js    # 官方 vs 本地对账 payload
 │   ├── client.js       # 浏览器半边：__ModuleLoader__ bundle，React 组件与图表（纯 SVG）
 │   └── panel.css       # 面板样式（由 /panel.css 下发）
@@ -174,7 +172,7 @@ npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 几个非显然、改代码前必须知道的约束：
 
 - **客户端 bundle 只能导出 `apply` / `inject`**。导出 `default` 会让宿主 fiber 卡在 loading，整个 web 启动失败。
-- **bundle 上限 100KB**，而面板样式有 ~69KB。所以样式走 `/api/deepseek-usage/panel.css` 单独下发，
+- **bundle 上限 100KB**，而面板样式有 ~90KB。所以样式走 `/api/deepseek-usage/panel.css` 单独下发，
   客户端只注入一个 `<link>`；把 CSS 塞回 `client.js` 会直接超限。
 - **`inject` 里只声明真用到的服务**：`credentials` 必须；`webServer` / `httpServer` / `commands` /
   `sessionPersistence` 是可选的，用 `ctx.get()` 探测——Cordis 4 下直接读 `ctx.commands` 会抛错。
@@ -187,9 +185,9 @@ npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 
 | 项 | 预算 | 实测 |
 | --- | --- | --- |
-| 客户端 bundle | ≤ 102400B | 102350B（本次验证） |
-| 面板样式 | 独立下发 | ~69KB |
-| 侧边栏摘要 | 每 120 秒刷新当前数据源 | 同费率/同汇率口径 |
+| 客户端 bundle | ≤ 102400B | 102340B（本次验证） |
+| 面板样式 | 独立下发 | ~90KB |
+| 侧边栏摘要 | 每 120 秒刷新当前数据源 | 同费率口径 |
 | 图表渲染 | 纯 SVG，≤ 5ms | 满足 |
 | 本地 126 个会话首次折叠 | < 5s | ~2.3s |
 | 本地增量折叠 | 只重读 revision 变化的会话 | 满足 |

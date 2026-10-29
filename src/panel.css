@@ -1705,12 +1705,13 @@ div:has(> [data-slot='sidebar.footer.action']) { flex-wrap: wrap; }
 .d-usage .d-metric-action:focus-visible{outline:2px solid var(--d-accent);outline-offset:2px}
 /* Four-channel pricing editor and aligned metric groups. */
 .d-usage .d-metrics { gap: 16px; margin: 20px 0 24px; }
-.d-usage .d-metric { padding: 16px; gap: 8px; min-width: 0; }
+.d-usage .d-metric { padding: 16px; gap: 8px; min-width: 0; container-type: inline-size; }
 .d-usage .d-metric-label { font-size: 14px; line-height: 1.6; gap: 8px; }
 .d-usage .d-metric-label [data-metric-icon] { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .d-usage .d-metric-label svg { width: 16px; height: 16px; }
 .d-usage .d-metric-line { align-items: baseline; gap: 6px; min-height: 30px; flex-wrap: wrap; }
-.d-usage .d-metric-value { font-size: 20px; line-height: 1.4; letter-spacing: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; }
+/* 数字不折行：卡片变窄时按容器宽度缩字号，9 位数字也保持完整。 */
+.d-usage .d-metric-value { font-size: min(20px, 14cqi); line-height: 1.4; letter-spacing: 0; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .d-usage .d-metric-caption { font-size: 12px; line-height: 1.65; }
 .d-usage .d-metric-unit { font-size: 11px; margin-left: 4px; }
 .d-usage .d-pref-order { display: inline-flex; gap: 4px; margin-left: auto; }
@@ -1755,7 +1756,6 @@ div:has(> [data-slot='sidebar.footer.action']) { flex-wrap: wrap; }
 
 /* period + local rules moved out of the client bundle */
 .d-usage .d-heat-cell.d-today::after,.d-usage .d-week-cell.d-current-period::after,.d-usage .d-month-cell.d-current-period::after{content:'';position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:var(--d-danger);box-shadow:0 0 0 2px var(--d-surface);animation:d-usage-dot-pulse 1.8s ease-in-out infinite}.d-usage .d-week-cell.d-current-period,.d-usage .d-month-cell.d-current-period{position:relative;outline:1px solid color-mix(in srgb, var(--d-danger) 62%, transparent);outline-offset:-1px}@keyframes d-usage-dot-pulse{0%,100%{transform:scale(.82);box-shadow:0 0 0 2px var(--d-surface),0 0 0 2px color-mix(in srgb, var(--d-danger) 22%, transparent)}50%{transform:scale(1.18);box-shadow:0 0 0 2px var(--d-surface),0 0 0 5px color-mix(in srgb, var(--d-danger) 12%, transparent)}}
-.d-usage .d-recon{margin:0;border:1px solid var(--d-border);border-radius:12px;overflow:hidden;background:var(--d-surface)}.d-usage .d-recon-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 10px;font-size:11px;color:var(--d-muted)}.d-usage .d-recon-bar b{color:var(--d-fg);font-family:var(--d-font-mono);font-size:12px}.d-usage .d-recon-bar button{margin-left:auto;border:0;border-radius:999px;background:var(--d-accent-weak);color:var(--d-accent-strong);font:11px var(--d-font-body);padding:3px 9px;cursor:pointer}.d-usage .d-recon-panel{border-top:1px solid var(--d-border);padding:6px 10px 9px;max-height:210px;overflow:auto}.d-usage .d-recon-row{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:8px;padding:3px 0;font-size:11px;color:var(--d-fg);font-variant-numeric:tabular-nums}.d-usage .d-recon-head{color:var(--d-muted);font-size:10px;border-bottom:1px solid var(--d-border);padding-bottom:4px;margin-bottom:3px}.d-usage .d-recon-note{margin:6px 0 0;color:var(--d-muted);font-size:10px;line-height:1.5}
 
 /* Display settings and template-style pricing table. */
 .d-usage .d-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--d-fg); }
@@ -1866,6 +1866,110 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 .d-usage .d-rate-open:hover {
   border-color: var(--d-accent);
   color: var(--d-accent);
+}
+
+.d-usage .d-fx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--d-border);
+  border-radius: 6px;
+  background: var(--d-surface);
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+.d-usage .d-fx-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.d-usage .d-fx-heading small {
+  color: var(--d-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.d-usage .d-fx-row:hover {
+  border-color: color-mix(in srgb, var(--d-accent) 30%, var(--d-border));
+}
+.d-usage .d-fx-row:focus-within {
+  border-color: var(--d-accent);
+  box-shadow: 0 0 0 3px var(--d-accent-soft);
+}
+.d-usage .d-fx-label {
+  flex: none;
+  color: var(--d-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+.d-usage .d-fx-btn {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--d-fg);
+  font: 600 12px/1 var(--d-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color .16s ease, background-color .16s ease;
+}
+.d-usage .d-fx-btn:hover {
+  color: var(--d-accent);
+  background: var(--d-accent-soft);
+}
+.d-usage .d-fx-btn:focus-visible {
+  outline: 2px solid var(--d-accent);
+  outline-offset: -2px;
+}
+.d-usage .d-fx-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--d-accent);
+  border-radius: 4px;
+  background: var(--d-surface);
+  color: var(--d-fg);
+  font: 500 12px var(--d-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: 0;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.d-usage .d-fx-input::-webkit-outer-spin-button,
+.d-usage .d-fx-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.d-usage .d-fx-ok,
+.d-usage .d-fx-cancel {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--d-muted);
+  font: 600 14px/1 var(--d-font-body);
+  cursor: pointer;
+}
+.d-usage .d-fx-ok {
+  color: var(--d-accent-strong);
+  background: var(--d-accent-soft);
+}
+.d-usage .d-fx-ok:hover,
+.d-usage .d-fx-cancel:hover {
+  background: color-mix(in srgb, var(--d-accent) 12%, transparent);
+  color: var(--d-accent-strong);
 }
 .d-usage .d-display-pref-list {
   gap: 6px;
@@ -2297,4 +2401,1058 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 }
 @media (max-width: 460px) {
   .d-usage .d-seat-preview-value { max-width: 72px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Pricing CRUD: toolbar, inline add row, row edit and batch selection. */
+.d-usage .d-rate-search {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 14px 0 12px;
+}
+.d-usage .d-rate-search input {
+  flex: 1 1 220px;
+  height: 32px;
+}
+.d-usage .d-rate-count {
+  flex: none;
+  color: var(--d-muted);
+  font: 12px var(--d-font-body);
+  white-space: nowrap;
+}
+.d-usage .d-rate-search button {
+  flex: none;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+.d-usage .d-rate-search button.d-rate-add-btn {
+  border-color: color-mix(in srgb, var(--d-accent) 40%, var(--d-border));
+  background: color-mix(in srgb, var(--d-accent) 7%, var(--d-surface));
+  color: var(--d-accent-strong);
+}
+.d-usage .d-rate-search button.d-rate-add-btn:hover {
+  border-color: var(--d-accent);
+  color: var(--d-accent-strong);
+}
+.d-usage .d-rate-search button.d-rate-batch {
+  color: var(--d-danger);
+}
+.d-usage .d-rate-search button.d-rate-batch:hover:not(:disabled) {
+  border-color: var(--d-danger);
+  color: var(--d-danger);
+}
+.d-usage .d-rate-search .d-rate-reset {
+  margin-left: 0;
+}
+.d-usage .d-rate-table th.d-rate-check,
+.d-usage .d-rate-table td.d-rate-check {
+  width: 30px;
+  padding: 4px;
+  text-align: center;
+}
+.d-usage .d-rate-check input {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--d-accent);
+  cursor: pointer;
+}
+.d-usage .d-rate-table tr.d-rate-draft {
+  background: color-mix(in srgb, var(--d-accent) 6%, var(--d-surface));
+}
+.d-usage .d-rate-draft input {
+  width: 100%;
+  height: 28px;
+  min-height: 28px;
+  padding: 3px 6px;
+}
+.d-usage .d-rate-draft .d-rate-new-name {
+  min-width: 130px;
+}
+.d-usage .d-rate-draft button.d-rate-add-confirm {
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.d-usage .d-rate-row-actions .d-rate-icon + .d-rate-icon {
+  margin-left: 2px;
+}
+.d-usage .d-rate-icon.d-rate-ok {
+  color: var(--d-success);
+}
+.d-usage .d-rate-icon.d-rate-ok:hover {
+  color: var(--d-success);
+  background: color-mix(in srgb, var(--d-success) 12%, transparent);
+}
+.d-usage .d-rate-icon.d-rate-del:hover {
+  color: var(--d-danger);
+  background: color-mix(in srgb, var(--d-danger) 10%, transparent);
+}
+.d-usage .d-rate-error {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.d-usage .d-rate-empty {
+  padding: 28px 8px !important;
+  color: var(--d-muted);
+  text-align: center;
+}
+.d-usage .d-rate-search,
+.d-usage .d-rate-scroll {
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .d-usage .d-rate-table th:last-child,
+  .d-usage .d-rate-table td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--d-surface);
+    box-shadow: -6px 0 8px -6px color-mix(in srgb, var(--d-fg) 22%, transparent);
+  }
+  .d-usage .d-rate-table thead th:last-child {
+    z-index: 3;
+    background: color-mix(in srgb, var(--d-fg) 2.5%, var(--d-surface));
+  }
+  .d-usage .d-rate-table tr.d-rate-editing td:last-child {
+    background: color-mix(in srgb, var(--d-accent) 7%, var(--d-surface));
+  }
+  .d-usage .d-rate-table tr.d-rate-draft td:last-child {
+    background: color-mix(in srgb, var(--d-accent) 6%, var(--d-surface));
+  }
+}
+
+/* Pricing dialog polish — B Design System pass (2026-10) */
+.d-usage .d-rate-dialog:not(.d-rate-dialog-fx) {
+  padding: 20px 24px 18px;
+  border-radius: 8px;
+}
+.d-usage .d-rate-dialog .d-dialog-title-row {
+  align-items: center;
+  margin-bottom: 2px;
+}
+.d-usage .d-rate-dialog .d-dialog-title-row h2 {
+  font-size: 18px;
+  line-height: 1.35;
+  letter-spacing: -.01em;
+}
+.d-usage .d-rate-search {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 12px;
+}
+.d-usage .d-rate-search input[type="search"] {
+  flex: 1 1 220px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--d-border);
+  border-radius: 6px;
+  background: var(--d-surface);
+  color: var(--d-fg);
+  font-size: 13px;
+}
+.d-usage .d-rate-search input[type="search"]::placeholder {
+  color: var(--d-muted);
+}
+.d-usage .d-rate-search input[type="search"]:focus {
+  outline: none;
+  border-color: var(--d-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--d-accent) 12%, transparent);
+}
+.d-usage .d-rate-search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--d-border);
+  border-radius: 6px;
+  background: var(--d-surface);
+  color: var(--d-fg);
+  font: 500 12px/1 var(--d-font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .08s ease;
+}
+.d-usage .d-rate-search button:hover:not(:disabled) {
+  border-color: var(--d-accent);
+  color: var(--d-accent);
+  background: color-mix(in srgb, var(--d-accent) 6%, var(--d-surface));
+}
+.d-usage .d-rate-search button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.d-usage .d-rate-search button:disabled {
+  color: var(--d-muted);
+  opacity: .55;
+  cursor: not-allowed;
+}
+.d-usage .d-rate-search button.d-rate-filter {
+  padding: 0 10px;
+  color: var(--d-muted);
+  font-variant-numeric: tabular-nums;
+}
+.d-usage .d-rate-search button.d-rate-filter[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--d-accent) 45%, var(--d-border));
+  background: color-mix(in srgb, var(--d-accent) 9%, var(--d-surface));
+  color: var(--d-accent);
+}
+.d-usage .d-rate-search button.d-rate-reset {
+  margin-left: 0;
+  color: var(--d-fg) !important;
+}
+.d-usage .d-rate-search button.d-rate-reset::before {
+  content: "↺";
+  font-size: 14px;
+  line-height: 1;
+}
+.d-usage .d-rate-search button.d-rate-reset:hover:not(:disabled) {
+  color: var(--d-accent) !important;
+  border-color: var(--d-accent);
+  background: color-mix(in srgb, var(--d-accent) 6%, var(--d-surface));
+}
+.d-usage .d-rate-search button.d-rate-batch {
+  color: var(--d-danger);
+}
+.d-usage .d-rate-search button.d-rate-batch:hover:not(:disabled) {
+  border-color: var(--d-danger);
+  color: var(--d-danger);
+  background: color-mix(in srgb, var(--d-danger) 7%, var(--d-surface));
+}
+.d-usage .d-rate-search button.d-rate-add-btn {
+  margin-left: auto;
+  border-color: var(--d-accent);
+  background: var(--d-accent);
+  color: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--d-accent) 26%, transparent);
+}
+.d-usage .d-rate-search button.d-rate-add-btn:hover:not(:disabled) {
+  border-color: var(--d-accent-hover);
+  background: var(--d-accent-hover);
+  color: #fff;
+}
+.d-usage .d-rate-table {
+  min-width: 700px;
+}
+.d-usage .d-rate-table th,
+.d-usage .d-rate-table td {
+  height: 48px;
+  padding: 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--d-border) 55%, transparent);
+  color: var(--d-fg);
+  font-size: 13px;
+}
+.d-usage .d-rate-table thead {
+  background: color-mix(in srgb, var(--d-fg) 3.5%, var(--d-surface));
+}
+.d-usage .d-rate-table thead th {
+  height: 40px;
+  color: var(--d-muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .01em;
+}
+.d-usage .d-rate-table th.d-rate-check,
+.d-usage .d-rate-table td.d-rate-check {
+  width: 40px;
+  padding: 0 6px;
+  text-align: center;
+}
+.d-usage .d-rate-check input {
+  width: 16px;
+  height: 16px;
+}
+.d-usage .d-rate-check input:disabled {
+  opacity: .35;
+}
+.d-usage .d-rate-table th:nth-child(n+3):nth-child(-n+6),
+.d-usage .d-rate-table td:nth-child(n+3):nth-child(-n+6) {
+  text-align: right;
+}
+.d-usage .d-rate-table td:nth-child(n+3):nth-child(-n+6) input {
+  text-align: right;
+}
+.d-usage .d-rate-table th:last-child,
+.d-usage .d-rate-table td:last-child {
+  text-align: left;
+}
+.d-usage .d-rate-table tbody tr:hover {
+  background: color-mix(in srgb, var(--d-accent) 3%, var(--d-surface));
+}
+.d-usage .d-rate-table tbody tr.d-rate-selected {
+  background: color-mix(in srgb, var(--d-accent) 7%, var(--d-surface));
+}
+.d-usage .d-rate-table tbody tr.d-rate-editing {
+  background: color-mix(in srgb, var(--d-accent) 9%, var(--d-surface));
+}
+.d-usage .d-rate-table tbody tr.d-rate-draft {
+  background: color-mix(in srgb, var(--d-accent) 5%, var(--d-surface));
+}
+.d-usage .d-rate-table tr.d-rate-editing td:first-child,
+.d-usage .d-rate-table tr.d-rate-draft td:first-child {
+  box-shadow: inset 3px 0 0 var(--d-accent);
+}
+.d-usage .d-rate-model b {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.d-usage .d-rate-model code {
+  font-size: 11px;
+  line-height: 1.4;
+}
+.d-usage .d-rate-value {
+  color: var(--d-fg);
+  font-size: 13px;
+}
+.d-usage .d-rate-table input[type="number"] {
+  width: 88px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.d-usage .d-rate-table input[type="number"]:focus {
+  outline: none;
+  border-color: var(--d-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--d-accent) 12%, transparent);
+}
+.d-usage .d-rate-draft input {
+  height: 32px;
+}
+.d-usage .d-rate-draft .d-rate-new-name {
+  min-width: 160px;
+}
+.d-usage .d-rate-row-actions {
+  padding-left: 8px;
+  white-space: nowrap;
+}
+.d-usage .d-rate-dialog button.d-rate-icon {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  border-radius: 5px;
+}
+.d-usage .d-rate-icon.d-rate-ok {
+  color: var(--d-success);
+}
+.d-usage .d-rate-icon.d-rate-ok:hover {
+  color: var(--d-success);
+  background: color-mix(in srgb, var(--d-success) 12%, transparent);
+}
+.d-usage .d-rate-empty {
+  padding: 40px 12px !important;
+  color: var(--d-muted);
+  font-size: 12px;
+  text-align: center;
+}
+.d-usage .d-rate-error {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--d-danger) 8%, var(--d-surface));
+  font-size: 12px;
+  line-height: 1.5;
+}
+.d-usage .d-rate-foot {
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--d-border) 60%, transparent);
+  font-size: 12px;
+}
+.d-usage .d-rate-dialog .d-rate-pager button {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  border-radius: 6px;
+}
+.d-usage .d-rate-pager button:hover:not(:disabled) {
+  border-color: var(--d-accent);
+  color: var(--d-accent);
+  background: color-mix(in srgb, var(--d-accent) 6%, var(--d-surface));
+}
+.d-usage .d-rate-pager b {
+  min-width: 48px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--d-accent) 8%, var(--d-surface));
+  color: var(--d-accent);
+  font-size: 12px;
+  text-align: center;
+}
+@media (max-width: 720px) {
+  .d-usage .d-rate-table thead th:last-child {
+    background: color-mix(in srgb, var(--d-fg) 3.5%, var(--d-surface));
+  }
+  .d-usage .d-rate-table tr.d-rate-selected td:last-child {
+    background: color-mix(in srgb, var(--d-accent) 7%, var(--d-surface));
+  }
+  .d-usage .d-rate-table tr.d-rate-editing td:last-child {
+    background: color-mix(in srgb, var(--d-accent) 9%, var(--d-surface));
+  }
+  .d-usage .d-rate-table tr.d-rate-draft td:last-child {
+    background: color-mix(in srgb, var(--d-accent) 5%, var(--d-surface));
+  }
+}
+
+.d-usage .d-rate-scroll > .d-rate-empty {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 180px;
+  padding: 40px 16px !important;
+  color: var(--d-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.d-usage .d-rate-dialog:not(.d-rate-dialog-fx) {
+  height: min(704px, calc(100vh - 32px));
+}
+
+.d-usage .d-rate-scroll > .d-rate-empty {
+  flex-direction: column;
+  gap: 10px;
+}
+.d-usage .d-rate-scroll > .d-rate-empty::before {
+  content: "";
+  width: 30px;
+  height: 30px;
+  background: var(--d-muted);
+  opacity: .4;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M12 3 4 7v10l8 4 8-4V7l-8-4Z'/%3E%3Cpath d='m4 7 8 4 8-4M12 11v10'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M12 3 4 7v10l8 4 8-4V7l-8-4Z'/%3E%3Cpath d='m4 7 8 4 8-4M12 11v10'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+@keyframes d-rate-dialog-in {
+  from { opacity: 0; transform: translateY(6px) scale(.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.d-usage .d-rate-dialog {
+  animation: d-rate-dialog-in .18s ease-out;
+}
+
+.d-usage .d-rate-search button.d-rate-add-btn {
+  width: 36px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.d-usage .d-rate-table tr.d-rate-draft .d-rate-icon,
+.d-usage .d-rate-table tr.d-rate-editing .d-rate-icon {
+  background: color-mix(in srgb, var(--d-fg) 4%, transparent);
+}
+.d-usage .d-rate-table tr.d-rate-draft .d-rate-icon.d-rate-ok,
+.d-usage .d-rate-table tr.d-rate-editing .d-rate-icon.d-rate-ok {
+  background: color-mix(in srgb, var(--d-success) 11%, transparent);
+}
+
+.d-usage .d-rate-table input[type="number"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.d-usage .d-rate-table tbody th {
+  min-width: 210px;
+}
+
+@media (max-width: 560px) {
+  .d-usage .d-rate-table {
+    table-layout: fixed;
+    width: 558px;
+    min-width: 558px;
+  }
+  .d-usage .d-rate-table tbody th {
+    min-width: 0;
+  }
+  .d-usage .d-rate-table th.d-rate-check,
+  .d-usage .d-rate-table td.d-rate-check {
+    width: 40px;
+  }
+  .d-usage .d-rate-table th:nth-child(2),
+  .d-usage .d-rate-table td:nth-child(2) {
+    width: 170px;
+  }
+  .d-usage .d-rate-table th:nth-child(n+3):nth-child(-n+6),
+  .d-usage .d-rate-table td:nth-child(n+3):nth-child(-n+6) {
+    width: 67px;
+  }
+  .d-usage .d-rate-table th:last-child,
+  .d-usage .d-rate-table td:last-child {
+    width: 80px;
+  }
+  .d-usage .d-rate-table thead th {
+    font-size: 11px;
+  }
+  .d-usage .d-rate-model code {
+    display: none;
+  }
+  .d-usage .d-rate-row-actions {
+    padding-left: 4px;
+  }
+  .d-usage .d-rate-dialog button.d-rate-icon {
+    width: 26px;
+    height: 26px;
+    min-height: 26px;
+  }
+}
+
+@media (max-width: 560px) {
+  .d-usage .d-rate-search > input[type="search"] {
+    flex: 1 0 100%;
+    min-width: 0;
+  }
+  .d-usage .d-rate-add-btn {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .d-usage .d-settings-panel {
+    position: fixed;
+    top: 64px;
+    right: auto;
+    left: max(12px, calc(50vw - 170px));
+    width: min(340px, calc(100vw - 24px));
+    max-height: calc(100vh - 76px);
+   }
+ }
+
+/* Exchange rate: give the equation its own readable line. */
+.d-usage .d-fx-row {
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.d-usage .d-fx-label {
+  color: var(--d-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.d-usage .d-fx-btn {
+  height: 28px;
+  padding: 0 6px;
+  color: var(--d-fg);
+  font-size: 15px;
+  text-align: left;
+}
+.d-usage .d-fx-input {
+  height: 28px;
+  padding: 0 7px;
+  font-size: 15px;
+  text-align: left;
+}
+.d-usage .d-fx-unit {
+  flex: none;
+  color: var(--d-muted);
+  font: 600 12px/1 var(--d-font-mono);
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .d-usage .d-fx-row {
+    gap: 6px;
+  }
+}
+
+/* Compact settings: left navigation labels, right-side controls. */
+.d-usage .d-settings-panel {
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 24px));
+  max-height: 510px !important;
+  padding: 0;
+  overflow-y: auto;
+}
+.d-usage .d-settings-panel::before {
+  content: "看板设置";
+  display: block;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--d-border);
+  color: var(--d-fg);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.d-usage .d-settings-group {
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px;
+  border-top: 1px solid var(--d-border);
+  border-radius: 0;
+  background: transparent;
+}
+.d-usage .d-settings-group:first-child {
+  padding-top: 14px;
+  border-top: 0;
+}
+.d-usage .d-settings-group:last-child {
+  padding-bottom: 14px;
+}
+.d-usage .d-settings-group > .d-settings-label,
+.d-usage .d-settings-group > .d-fx-heading {
+  grid-column: 1;
+  align-self: start;
+  padding-top: 3px;
+}
+.d-usage .d-settings-group > .d-theme-swatches,
+.d-usage .d-settings-group > .d-display-pref-list,
+.d-usage .d-settings-group > .d-fx-row,
+.d-usage .d-settings-group > .d-rate-open,
+.d-usage .d-settings-group > .d-settings-toggle,
+.d-usage .d-settings-group > .d-settings-select {
+  grid-column: 2;
+  min-width: 0;
+}
+.d-usage .d-settings-group > .d-theme-swatches,
+.d-usage .d-settings-group > .d-display-pref-list,
+.d-usage .d-settings-group > .d-fx-row {
+  margin-top: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--d-border);
+}
+.d-usage .d-settings-group > .d-theme-swatches {
+  align-self: center;
+}
+.d-usage .d-display-pref-list {
+  gap: 6px;
+}
+.d-usage .d-settings-group > .d-rate-open {
+  height: 32px;
+}
+@media (max-width: 560px) {
+  .d-usage .d-settings-panel {
+    width: min(340px, calc(100vw - 24px));
+  }
+  .d-usage .d-settings-group {
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px;
+  }
+  .d-usage .d-display-pref-row {
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 5px 4px;
+  }
+  .d-usage .d-drag-handle {
+    width: 12px;
+  }
+  .d-usage .d-metric-icon-picker {
+    width: 24px;
+    height: 24px;
+  }
+  .d-usage .d-seat-label-input {
+    min-width: 24px;
+    padding: 0 2px;
+    font-size: 12px;
+  }
+  .d-usage .d-seat-preview-value {
+    font-size: 11px;
+  }
+  .d-usage .d-display-pref-row .d-settings-toggle {
+    gap: 0;
+  }
+  .d-usage .d-settings-group > .d-settings-toggle {
+    gap: 8px;
+  }
+}
+
+/* Focused settings popover: one category at a time in a compact 250px panel. */
+.d-usage .d-settings-panel {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  align-content: start;
+  width: 290px;
+  min-height: 215px;
+  max-height: 215px !important;
+  overflow: hidden;
+  padding: 0;
+  border-radius: var(--d-radius-lg);
+}
+.d-usage .d-settings-panel::before {
+  grid-column: 1 / -1;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--d-border);
+  border-radius: var(--d-radius-lg) var(--d-radius-lg) 0 0;
+}
+.d-usage .d-settings-nav {
+  grid-column: 1;
+  grid-row: 2 / 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+  border-right: 1px solid var(--d-border);
+}
+.d-usage .d-settings-nav-item {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--d-radius-sm);
+  background: transparent;
+  color: var(--d-muted);
+  font: 12px/1.35 var(--d-font-body);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .14s ease, color .14s ease;
+}
+.d-usage .d-settings-nav-item:hover {
+  background: color-mix(in srgb, var(--d-fg) 5%, transparent);
+  color: var(--d-fg);
+}
+.d-usage .d-settings-nav-item.is-active,
+.d-usage .d-settings-tab-appearance .d-settings-nav-item:nth-child(1),
+.d-usage .d-settings-tab-seat .d-settings-nav-item:nth-child(2),
+.d-usage .d-settings-tab-pricing .d-settings-nav-item:nth-child(3),
+.d-usage .d-settings-tab-refresh .d-settings-nav-item:nth-child(4),
+.d-usage .d-settings-panel:not([class*="d-settings-tab-"]) .d-settings-nav-item:nth-child(2) {
+  background: var(--d-accent-soft);
+  color: var(--d-accent-strong);
+  font-weight: 600;
+}
+.d-usage .d-settings-panel > .d-settings-group {
+  display: none;
+  grid-column: 2;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px 12px;
+  border: 0;
+  background: transparent;
+}
+.d-usage .d-settings-panel.d-settings-tab-appearance > .d-settings-group:nth-of-type(2),
+.d-usage .d-settings-panel:not([class*="d-settings-tab-"]) > .d-settings-group:nth-of-type(3),
+.d-usage .d-settings-panel.d-settings-tab-seat > .d-settings-group:nth-of-type(3),
+.d-usage .d-settings-panel.d-settings-tab-pricing > .d-settings-group:nth-of-type(4),
+.d-usage .d-settings-panel.d-settings-tab-refresh > .d-settings-group:nth-of-type(5) {
+  display: grid;
+}
+.d-usage .d-settings-panel > .d-settings-group > .d-settings-label,
+.d-usage .d-settings-panel > .d-settings-group > .d-fx-heading {
+  grid-column: 1;
+  padding: 0;
+}
+.d-usage .d-settings-panel > .d-settings-group > .d-theme-swatches,
+.d-usage .d-settings-panel > .d-settings-group > .d-display-pref-list,
+.d-usage .d-settings-panel > .d-settings-group > .d-fx-row,
+.d-usage .d-settings-panel > .d-settings-group > .d-rate-open,
+.d-usage .d-settings-panel > .d-settings-group > .d-settings-toggle,
+.d-usage .d-settings-panel > .d-settings-group > .d-settings-select {
+  grid-column: 1;
+  min-width: 0;
+}
+.d-usage .d-settings-panel > .d-settings-group > .d-theme-swatches {
+  gap: 7px;
+  padding: 0;
+  border: 0;
+}
+.d-usage .d-settings-panel .d-theme-swatch {
+  width: 22px;
+  height: 22px;
+}
+.d-usage .d-settings-panel > .d-settings-group > .d-display-pref-list,
+.d-usage .d-settings-panel > .d-settings-group > .d-fx-row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.d-usage .d-settings-panel .d-display-pref-row {
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-height: 40px;
+  padding: 5px;
+}
+.d-usage .d-settings-panel .d-display-pref-row .d-settings-toggle {
+  gap: 0;
+}
+.d-usage .d-settings-panel .d-drag-handle {
+  width: 12px;
+}
+.d-usage .d-settings-panel .d-metric-icon-picker {
+  width: 24px;
+  height: 24px;
+}
+.d-usage .d-settings-panel .d-seat-label-input {
+  min-width: 22px;
+  padding: 0 2px;
+  font-size: 11px;
+}
+.d-usage .d-settings-panel .d-seat-preview-value {
+  font-size: 10px;
+}
+.d-usage .d-settings-panel .d-fx-heading small {
+  display: none;
+}
+.d-usage .d-settings-panel .d-fx-row {
+  gap: 4px;
+  min-height: 34px;
+  padding: 4px;
+}
+.d-usage .d-settings-panel .d-fx-label,
+.d-usage .d-settings-panel .d-fx-unit {
+  font-size: 10px;
+}
+.d-usage .d-settings-panel .d-fx-btn,
+.d-usage .d-settings-panel .d-fx-input {
+  font-size: 13px;
+}
+.d-usage .d-settings-panel .d-rate-open {
+  height: 30px;
+}
+.d-usage .d-settings-panel .d-settings-select {
+  height: 30px;
+  margin-top: 0;
+}
+.d-usage .d-settings-panel.d-settings-tab-seat {
+  width: 370px;
+  min-height: 255px;
+  max-height: 255px !important;
+}
+@media (max-width: 560px) {
+  .d-usage .d-settings-panel {
+    width: min(290px, calc(100vw - 24px));
+    min-height: 215px;
+    max-height: min(215px, calc(100vh - 76px)) !important;
+  }
+  .d-usage .d-settings-panel.d-settings-tab-seat {
+    left: max(12px, calc(50vw - 185px));
+    width: min(370px, calc(100vw - 24px));
+    min-height: 255px;
+    max-height: min(255px, calc(100vh - 76px)) !important;
+  }
+}
+
+
+/* Match refresh and sidebar switches while keeping settings non-scrollable. */
+.d-usage .d-settings-panel {
+  overflow: hidden;
+}
+.d-usage .d-settings-panel .d-seat-label-input {
+  min-width: 48px;
+  font-size: 12px;
+}
+.d-usage .d-settings-panel .d-seat-preview-value {
+  flex: none;
+  color: var(--d-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+.d-usage .d-settings-panel .d-display-pref-row .d-settings-toggle {
+  flex: none;
+  width: 34px;
+  min-width: 34px;
+  justify-content: flex-end;
+}
+.d-usage .d-settings-panel .d-settings-group > .d-refresh-toggle {
+  display: flex;
+  grid-column: 1;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 34px;
+  gap: 8px;
+}
+.d-usage .d-settings-panel .d-refresh-toggle .d-toggle-text {
+  flex: 1;
+  order: 0;
+  font-size: 13px;
+}
+.d-usage .d-settings-panel .d-refresh-toggle input,
+.d-usage .d-settings-panel .d-refresh-toggle .d-toggle-track {
+  order: 1;
+  flex: 0 0 34px;
+}
+.d-usage .d-settings-panel .d-refresh-toggle .d-toggle-track {
+  width: 34px;
+  height: 20px;
+}
+.d-usage .d-settings-panel .d-settings-pricing .d-settings-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.d-usage .d-settings-panel:has(.d-icon-choice-inline) {
+  width: auto;
+  min-height: 0;
+  max-height: none !important;
+  overflow: visible;
+}
+.d-usage .d-settings-panel:has(.d-icon-choice-inline) > .d-settings-group {
+  align-self: start;
+}
+@media (max-width: 560px) {
+  .d-usage .d-settings-panel:has(.d-icon-choice-inline) {
+    width: min(370px, calc(100vw - 24px));
+    max-height: calc(100vh - 76px) !important;
+  }
+}
+@media (max-width: 340px) {
+  .d-usage .d-settings-panel .d-seat-preview-value {
+    font-size: 12px;
+  }
+}
+
+/* Final settings popover: one fixed 290x240 frame, content vertically centred. */
+.d-usage .d-settings-panel,
+.d-usage .d-settings-panel.d-settings-tab-seat {
+  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  box-sizing: border-box;
+  width: 290px;
+  height: 240px;
+  min-height: 240px;
+  max-height: 240px !important;
+  overflow: hidden;
+  padding: 0;
+  border-radius: var(--d-radius-lg);
+}
+.d-usage .d-settings-panel::before { grid-column: 1 / -1; grid-row: 1; }
+.d-usage .d-settings-panel .d-settings-nav { grid-column: 1; grid-row: 2; padding: 10px 6px; }
+.d-usage .d-settings-panel > .d-settings-group {
+  grid-column: 2;
+  grid-row: 2;
+  display: none;
+  align-self: stretch;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 10px;
+  border: 0;
+  background: transparent;
+}
+.d-usage .d-settings-panel.d-settings-tab-appearance > .d-settings-group:nth-of-type(2),
+.d-usage .d-settings-panel.d-settings-tab-seat > .d-settings-group:nth-of-type(3),
+.d-usage .d-settings-panel.d-settings-tab-pricing > .d-settings-group:nth-of-type(4),
+.d-usage .d-settings-panel.d-settings-tab-refresh > .d-settings-group:nth-of-type(5) {
+  display: grid;
+}
+.d-usage .d-settings-panel.d-settings-tab-appearance > .d-settings-group:nth-of-type(2) { justify-items: center; }
+.d-usage .d-settings-panel.d-settings-tab-appearance .d-settings-label { width: 100%; text-align: center; }
+.d-usage .d-settings-panel.d-settings-tab-appearance .d-theme-swatches { justify-content: center; }
+.d-usage .d-settings-panel .d-display-pref-list { gap: 5px; }
+.d-usage .d-settings-panel .d-display-pref-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 2px 4px;
+}
+.d-usage .d-settings-panel .d-display-pref-row > .d-drag-handle { flex: none; width: 10px; height: 34px; }
+.d-usage .d-settings-panel .d-seat-main {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: 20px 20px;
+  column-gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.d-usage .d-settings-panel .d-metric-icon-picker {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+}
+.d-usage .d-settings-panel .d-seat-label-input {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 20px;
+}
+.d-usage .d-settings-panel .d-seat-preview-value {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--d-fg);
+  font: 600 12px/20px var(--d-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.d-usage .d-settings-panel .d-display-pref-row > .d-settings-toggle {
+  flex: none;
+  align-self: center;
+  width: 34px;
+  min-width: 34px;
+  min-height: 20px;
+  gap: 0;
+}
+.d-usage .d-settings-panel .d-refresh-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+}
+.d-usage .d-settings-panel .d-refresh-row .d-toggle-text { flex: 1; font-size: 13px; white-space: nowrap; }
+.d-usage .d-settings-panel .d-refresh-row .d-settings-select { flex: none; width: 86px; }
+.d-usage .d-settings-panel .d-refresh-row .d-settings-select:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.d-usage .d-settings-panel .d-rate-description {
+  grid-column: 1;
+  margin: 0;
+  color: var(--d-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.d-usage .d-settings-panel .d-fx-heading small { display: none; }
+.d-usage .d-settings-panel .d-settings-group > .d-fx-row { margin: 0; padding: 0; border: 0; }
+.d-usage .d-settings-panel .d-rate-open { height: 30px; }
+.d-usage .d-settings-panel .d-icon-choice-panel.d-icon-choice-inline {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: auto;
+  width: 216px;
+  margin: 0;
+  padding: 6px;
+  z-index: 30;
+}
+.d-usage .d-settings-panel:has(.d-icon-choice-inline) {
+  width: 290px;
+  height: 240px;
+  min-height: 240px;
+  max-height: 240px !important;
+  overflow: visible;
+}
+@media (max-width: 560px) {
+  .d-usage .d-settings-panel,
+  .d-usage .d-settings-panel.d-settings-tab-seat {
+    left: max(12px, calc(50vw - 145px));
+    right: auto;
+    width: min(290px, calc(100vw - 24px));
+    height: 240px;
+    min-height: 240px;
+    max-height: min(240px, calc(100vh - 96px)) !important;
+  }
 }
