@@ -78,16 +78,34 @@ handle.close()
 
 ## 安装
 
-从 npm 安装：
+先确认 `dsh` 命令可用（DSH 桌面 App 不自带 CLI）：
 
 ```bash
-dsh plugin --profile web add deepseek-usage
+dsh --version
 ```
 
-也可以从源码安装（开发调试）：
+没有的话，安装与 App 同版本的 CLI（把版本号换成你的 App 版本）：
 
 ```bash
-dsh plugin --profile web add github:sdiwenchen-lang/DeepSeek-Usage
+npm install -g @deepseek-ai/dsh@0.2.1-rc.3
+```
+
+然后按**实际使用的 profile** 安装。桌面 App 常见为 `desktop`，Web 版为 `web`：
+
+```bash
+dsh plugin --profile desktop add deepseek-usage
+```
+
+不确定 profile 名时，先列出目录，把 `desktop` 换成实际名称：
+
+```bash
+ls ~/.dsh/profiles
+```
+
+从源码安装（开发调试）：
+
+```bash
+dsh plugin --profile desktop add github:sdiwenchen-lang/DeepSeek-Usage
 ```
 
 装好后**重启 DSH** 生效：客户端 bundle 在启动时一次性加载。侧边栏会多出一枚
