@@ -87,7 +87,7 @@ DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profil
 
 ```yaml
 # cordis.patch.yml → dsh.profile.bundles
-- id: deepseek-usage
+- id: deepseek-usage-panel
   name: deepseek-usage
 ```
 
@@ -101,14 +101,17 @@ DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profil
 ### 可配置项（都有默认值，可不写）
 
 ```yaml
-- id: deepseek-usage
+- id: deepseek-usage-panel
   name: deepseek-usage
   config:
     xAppVersion: "0.1.0"                # 发给上游的 x-app-version
     requestTimeoutMs: 10000             # 单次上游请求超时
     cacheTtlMs: 600000                  # 缓存 TTL（10 分钟）
     lookbackMonths: 24                  # 月份回看上限（覆盖整年）
-    retryBackoffMs: [1000, 2000, 4000]  # 429 / 5xx 退避序列
+    retryBackoffMs:                     # 429 / 5xx 退避序列
+      - 1000
+      - 2000
+      - 4000
     local:
       sweepTtlMs: 30000                 # 本地会话日志扫描 TTL
       maxSessions: 5000                 # 单次扫描上限

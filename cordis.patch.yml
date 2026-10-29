@@ -6,7 +6,7 @@
 # Configuration is optional. Defaults work for the common case; override only
 # what you need:
 #
-#   - id: deepseek-usage
+#   - id: deepseek-usage-panel
 #     config:
 #       xAppVersion: "0.1.0"        # sent as x-app-version header to upstream
 #       requestTimeoutMs: 10000    # per upstream request
@@ -30,7 +30,7 @@
 # a subpath such as `deepseek-usage/plugin` fails that resolve, is cached as
 # "not a client package", and the panel silently never loads.
 - insert:
-    - id: deepseek-usage
+    - id: deepseek-usage-panel
       name: deepseek-usage
       config:
         xAppVersion: "0.1.0"
