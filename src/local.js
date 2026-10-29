@@ -272,6 +272,10 @@ export function createLocalSource(deps = {}) {
           error?.message ?? error
         );
       }
+
+      // 逐个会话让出一次事件循环：大日志（单个几十 MB）折叠是 CPU 密集的，
+      // 一口气跑完会占住宿主进程，宿主那边的点击/请求就排队卡住。
+      await new Promise((resolve) => setImmediate(resolve));
     }
 
     // 已被清理/移走的会话不再计入。

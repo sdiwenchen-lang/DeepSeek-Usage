@@ -872,7 +872,7 @@ function Dialog(props) {
   useEffect(function () { setSel(null); setData(null); setCal(null); }, [range, custom, page, dim, anchor.year, anchor.month]);
   useEffect(function () {
     if (!auto) return;
-    var timer = window.setInterval(function () { loadView(true); loadToday(true); }, interval * 1000);
+    var timer = window.setInterval(function () { loadView(false); loadToday(false); }, interval * 1000);
     return function () { clearInterval(timer); };
   }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode]);
 
@@ -1871,7 +1871,7 @@ function DeepSeekUsageSeat(props) {
       var path = mode === "local"
         ? "/local?range=today&tz=" + TZ + "&scope=all" + ratesParam()
         : "/official?range=today&tz=" + TZ;
-      getJSON(path + "&force=1").then(function (payload) {
+      getJSON(path).then(function (payload) {
         if (!alive) return;
         var rows = (payload.points && payload.points.length ? payload.points : payload.days) || [];
         var t = total(rows, null);

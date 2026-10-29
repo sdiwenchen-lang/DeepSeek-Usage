@@ -1,6 +1,6 @@
 {
   "name": "deepseek-usage",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek 官方口径的账户余额与每日 Token 用量 —— DeepSeek Harness 插件：点侧边栏「用量」弹出居中的用量与余额面板，数据直接复用 DSH 里已登录的 DeepSeek 账号",
   "type": "module",
   "license": "MIT",
