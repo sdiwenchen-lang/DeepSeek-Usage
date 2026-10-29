@@ -1,5 +1,5 @@
 /**
- * DeepMeter — DeepSeek Harness 插件入口（服务端半边）。
+ * DeepSeek Usage — DeepSeek Harness 插件入口（服务端半边）。
  *
  * 形态对齐宿主自带插件：
  *   - Cordis 插件（cordis.patch.yml），无构建。
@@ -9,7 +9,7 @@
  * 职责：
  *   1. 启动时构造 apiClient / auth / cache。
  *   2. 等 webServer 可用时注册端点（见 http.registerRoutes）。
- *   3. 注册 `deepmeter` 命令（CLI 体检）。
+ *   3. 注册 `deepseek-usage` 命令（CLI 体检）。
  *   4. 卸载时清理缓存与 in-flight。
  *
  * 不提供登录：直接读宿主 credentials 里 `deepseek-account-platform/default`
@@ -26,7 +26,7 @@ import { createLocalSource } from "./local.js";
 
 export const name = "deepseek-usage";
 
-/** DeepMeter 是否需要主动注入的服务（必填）。 */
+/** DeepSeek Usage 是否需要主动注入的服务（必填）。 */
 export const inject = ["credentials"];
 
 /** 可选服务：webServer / httpServer（在其中之一就绪时注册端点）/ commands / 本地会话日志。 */

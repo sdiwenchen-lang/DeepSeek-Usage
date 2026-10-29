@@ -258,7 +258,7 @@ const html = render(Seat({ wide: true }));
 const css = readFileSync(join(ROOT, "src", "panel.css"), "utf8");
 
 const page = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<title>DeepMeter preview · ${PAGE}</title>
+<title>DeepSeek Usage preview · ${PAGE}</title>
 <style>
 html, body { margin: 0; height: 100%; background: #eef1f6; font-family: -apple-system, "PingFang SC", sans-serif; }
 /* 预览页里把遮罩层还原成有背景的舞台，方便看清弹窗本体 */

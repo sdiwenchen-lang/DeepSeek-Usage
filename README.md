@@ -9,13 +9,14 @@
 
 ![在 DSH 中打开用量面板](assets/screenshots/overview.png)
 
-| 用量趋势 | 用量日历 | 侧边栏标签 |
-| --- | --- | --- |
-| ![用量趋势](assets/screenshots/usage-trend.png) | ![用量日历](assets/screenshots/calendar.png) | ![侧边栏标签](assets/screenshots/sidebar-settings.png) |
+| 用量趋势 | 用量日历 |
+| --- | --- |
+| ![用量趋势](assets/screenshots/usage-trend.png) | ![用量日历](assets/screenshots/calendar.png) |
+| ![本地 AI 聚合](assets/screenshots/local-aggregation.png) | ![侧边栏标签](assets/screenshots/sidebar-settings.png) |
 
 ## 它是什么
 
-DeepMeter 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧了多少、余额还剩多少、官方账单和本地日志差多少。
+DeepSeek Usage 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧了多少、余额还剩多少、官方账单和本地日志差多少。
 
 - **总额**：充值余额、累计消费（官方账单口径）。
 - **用量趋势**：所选范围内的消费金额、API 请求次数、Token 消耗，各模型 Token 堆叠柱状图，
@@ -26,7 +27,6 @@ DeepMeter 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧
   跟随当前数据源；本地模式不显示约等号，金额注明按当前费率估算（日志覆盖可能不完整，
   不声称与账单等价），费率可在面板里按模型增改；侧栏标签可直接拖拽排序，也可上传图标；
   余额仍读取官方账户余额，和本地日志范围无关。
-- **本地 AI 聚合**：读取本机 DSH 会话日志，按全部 Provider 汇总 Token、请求与费用；官方模式保留账户余额，本地模式聚焦本地日志，不混入官方账单口径。
 - **本地费用估算**：内置 42 个主流模型的 USD 快照，缓存命中 / 未命中输入 / 缓存写入 / 输出四个桶分别计价，不按时段切换；面板内可按模型编辑单价、删除或恢复模型；删除默认模型按未计价处理，本地金额按 USD→CNY 汇率折算，汇率默认 6.7，可在「显示设置 → 定价」直接修改。未定价模型显示「暂无费率」，不按 0 元计入。
 - **用量日历**：当月每日 Token 热力图，5 级深浅，可翻月。
 - **筛选**：时间范围（今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月）、模型多选。
@@ -78,7 +78,7 @@ handle.close()
 
 ## 安装
 
-DeepMeter 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profile>/`）：
+DeepSeek Usage 以**本地 link** 方式装进 DSH profile（`~/.dsh/profiles/<profile>/`）：
 
 ```jsonc
 // package.json → dependencies
@@ -196,7 +196,7 @@ npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
 
 | 项 | 预算 | 实测 |
 | --- | --- | --- |
-| 客户端 bundle | ≤ 102400B | 102340B（本次验证） |
+| 客户端 bundle | ≤ 102400B | 102348B（本次验证） |
 | 面板样式 | 独立下发 | ~90KB |
 | 侧边栏摘要 | 每 120 秒刷新当前数据源 | 同费率口径 |
 | 图表渲染 | 纯 SVG，≤ 5ms | 满足 |

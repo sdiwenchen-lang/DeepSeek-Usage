@@ -1836,7 +1836,7 @@ function Dialog(props) {
 }
 
 
-function DeepMeterSeat(props) {
+function DeepSeekUsageSeat(props) {
   var openS = useState(false);
   var open = openS[0];
   var setOpen = openS[1];
@@ -1926,7 +1926,7 @@ function DeepMeterSeat(props) {
 
 module.exports.apply = function apply(ctx) {
   ctx.slots.inject("sidebar.footer.action", function () {
-    return ctx.slots.register({ name: "sidebar.footer.action", id: "deepseek-usage", order: 21 }, DeepMeterSeat);
+    return ctx.slots.register({ name: "sidebar.footer.action", id: "deepseek-usage", order: 21 }, DeepSeekUsageSeat);
   });
 };
 module.exports.inject = ["slots"];

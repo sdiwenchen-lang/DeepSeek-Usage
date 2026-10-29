@@ -1,5 +1,5 @@
 /**
- * DeepMeter 本地数据源：把 DSH 会话日志折叠成面板能消费的按天/按小时视图。
+ * DeepSeek Usage 本地数据源：把 DSH 会话日志折叠成面板能消费的按天/按小时视图。
  *
  * ## 为什么不用 TokenLedger / 不建 SQLite
  *

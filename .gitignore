@@ -54,3 +54,6 @@ Thumbs.db
 *.tmp
 *.swp
 *~
+
+# ===== Playwright CLI 快照 =====
+.playwright-cli/
