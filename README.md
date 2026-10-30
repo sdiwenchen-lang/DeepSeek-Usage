@@ -14,6 +14,10 @@
 | ![用量趋势](assets/screenshots/usage-trend.png) | ![用量日历](assets/screenshots/calendar.png) |
 | ![本地 AI 聚合](assets/screenshots/local-aggregation.png) | ![侧边栏标签](assets/screenshots/sidebar-settings.png) |
 
+「各模型消费金额」有两个维度，图表右上角随时切换：「趋势」随时间展示金额，粒度跟随所选区间（当天按小时、跨天按天）；「综合」是所选区间内各模型金额的合计排行，条末直接标注金额与 Token 用量。下图是「近 7 天 + 综合」：
+
+![各模型消费金额：趋势 / 综合两种维度](assets/screenshots/model-spend.png)
+
 ## 它是什么
 
 DeepSeek Usage 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今天烧了多少、余额还剩多少、官方账单和本地日志差多少。

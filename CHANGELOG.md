@@ -16,6 +16,11 @@ Release，正文即为插件市场「更新内容」里显示的版本说明。
   分组 aria-label 由「切换图表粒度」改为「切换图表维度」。
 - 内部视图 key 由 `hour` / `day` 改为 `trend` / `agg`（无持久化，无需迁移）。
 
+### 文档
+
+- README 界面预览新增「趋势 / 综合」截图（`assets/screenshots/model-spend.png`），
+  并同步登记到 `screenshots.json`。
+
 ## 0.1.4 — 2026-10-30
 
 ### 新增
