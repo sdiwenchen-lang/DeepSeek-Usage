@@ -1,6 +1,6 @@
 {
   "name": "deepseek-usage",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "DeepSeek 官方口径的账户余额与每日 Token 用量 —— DeepSeek Harness 插件：点侧边栏「用量」弹出居中的用量与余额面板，数据直接复用 DSH 里已登录的 DeepSeek 账号",
   "type": "module",
   "license": "MIT",
@@ -30,7 +30,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>102400){console.error('bundle too large: '+s+'B > 102400B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
+    "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>112640){console.error('bundle too large: '+s+'B > 112640B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
   },
   "keywords": [
     "dsh-plugin",

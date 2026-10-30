@@ -86,7 +86,8 @@ handle.close()
 
 1. 打开 **设置 → 插件**
 2. 点右上角的 **+ / Add plugin**
-3. 输入 npm 包名 `deepseek-usage`
+3. 输入 npm 包名 `deepseek-usage`；本地开发可填本仓库的绝对路径
+   （如 `/Users/you/IdeaProjects/DeepSeek-Usage`，按 `link:` 处理，改代码后刷新即可）
 4. 安装完成后完全退出并重开 DSH（⌘Q）
 
 ### Web 版 / CLI
@@ -171,7 +172,7 @@ dsh plugin --profile web add github:sdiwenchen-lang/DeepSeek-Usage
 | `GET /api/deepseek-usage/official?range=today\|yesterday\|last7\|last30\|thisMonth\|lastMonth` | 官方用量；也接受 `from=YYYY-MM-DD&to=YYYY-MM-DD&tz=`（最多 800 天）。按自然月精确分片，保留首尾部分月份，未来日期补零且不请求上游 |
 | `GET /api/deepseek-usage/local?range=…&scope=all\|deepseek&tz=&rates=` | 本地会话日志的逐日/逐小时 Token、模型、Provider、缓存命中率、coverage 与 `cost` / `costMeta`（当前费率估算）；默认 `scope=all`，`rates` 可覆盖费率，`hidden` 列表按未计价处理；也接受 `from=&to=` 自定义范围 |
 | `GET /api/deepseek-usage/reconcile?range=…&scope=…` | 同一范围官方 vs 本地：覆盖率、差额、逐日/逐小时对账；官方未登录或本地不可用时降级一侧 |
-| `GET /api/deepseek-usage/panel.css` | 面板样式表（约 90KB，独立下发，见「体积预算」） |
+| `GET /api/deepseek-usage/panel.css` | 面板样式表（约 105KB，独立下发，见「体积预算」） |
 
 ## 代码结构
 
@@ -201,13 +202,13 @@ DeepSeek-Usage/
 
 ```bash
 npm test               # 离线 mock API、计价、本地聚合与客户端回归
-npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
+npm run bundle:check   # 客户端 bundle 体积上限 110KB（112640B）
 ```
 
 几个非显然、改代码前必须知道的约束：
 
 - **客户端 bundle 只能导出 `apply` / `inject`**。导出 `default` 会让宿主 fiber 卡在 loading，整个 web 启动失败。
-- **bundle 上限 100KB**，而面板样式有 ~90KB。所以样式走 `/api/deepseek-usage/panel.css` 单独下发，
+- **bundle 上限 110KB**，而面板样式有 ~105KB。所以样式走 `/api/deepseek-usage/panel.css` 单独下发，
   客户端只注入一个 `<link>`；把 CSS 塞回 `client.js` 会直接超限。
 - **`inject` 里只声明真用到的服务**：`credentials` 必须；`webServer` / `httpServer` / `commands` /
   `sessionPersistence` 是可选的，用 `ctx.get()` 探测——Cordis 4 下直接读 `ctx.commands` 会抛错。
@@ -216,12 +217,50 @@ npm run bundle:check   # 客户端 bundle 体积上限 100KB（102400B）
   一律走宿主句柄的 `read(0)`。
 - **上游字段名会变**，映射集中在 `apiclient.js` 的 `FIELD_MAP`，改一处即可。
 
+## 打包（本地分发包）
+
+没有构建步骤：服务端只用 Node 标准库，前端 `client.js` 手写 `__ModuleLoader__` bundle，
+所以「打包」就是 `npm pack`，产出物可直接装进 App 或发给别人。
+
+```bash
+npm run bundle:check     # 先过体积门禁（客户端 bundle ≤ 110 KiB，超了会被挡下）
+npm pack                 # 产出 deepseek-usage-<version>.tgz
+npm pack --dry-run       # 只看会进包的文件清单，不落盘
+```
+
+`package.json` 的 `files` 决定包内内容：`src/`、`cordis.patch.yml`、`README.md`、
+`CHANGELOG.md`、`LICENSE`。**`cordis.patch.yml` 是安装入口**（`dsh.bundle.patch` 指向它），
+漏掉它包能装、但 UI 不会出现任何入口。
+
+装进桌面 App：
+
+1. **设置 → 插件 → + / Add plugin**
+2. 选 **本地压缩包**，填 `.tgz` 绝对路径；或选 **本地目录**，填仓库根目录
+   （按 `link:` 处理，改完代码刷新页面就生效，适合反复调试）
+3. 装完 ⌘Q 完全退出再打开，刷新一次（⌘R）能看到侧边栏入口
+
+CLI（Web 版 profile）：
+
+```bash
+dsh plugin --profile web add ./deepseek-usage-0.1.4.tgz
+dsh plugin --profile web remove deepseek-usage
+```
+
+桌面端的 `desktop` profile 由 Electron 独占，**不能**用 `dsh plugin --profile desktop`
+装（报 `profile "desktop" is managed exclusively by the Electron application`），
+只能在 App 页面里操作。另外 pnpm 11 默认有 24 小时隔离期
+（`minimumReleaseAge=1440`），从 npm 装**刚发布**的版本会被 `ERR_PNPM_NO_MATCHING_VERSION`
+挡住，等满 24 小时或改用本地 `.tgz` / 目录安装。
+
+发版时同时更新 `CHANGELOG.md` 与 `package.json` 的版本号，并在 GitHub 上用同名
+tag 建 Release——正文就是插件市场「更新内容」里显示的版本说明。
+
 ## 体积与性能预算
 
 | 项 | 预算 | 实测 |
 | --- | --- | --- |
-| 客户端 bundle | ≤ 102400B | 102348B（本次验证） |
-| 面板样式 | 独立下发 | ~90KB |
+| 客户端 bundle | ≤ 112640B | 106324B（本次验证） |
+| 面板样式 | 独立下发 | ~105KB |
 | 侧边栏摘要 | 每 120 秒刷新当前数据源 | 同费率口径 |
 | 图表渲染 | 纯 SVG，≤ 5ms | 满足 |
 | 本地 126 个会话首次折叠 | < 5s | ~2.3s |

@@ -1070,7 +1070,7 @@ margin-top: 20px; padding: 20px 18px 18px; background: var(--d-bg); border-radiu
 }
 
 .d-usage .d-chart-heading {
-display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
 }
 
 .d-usage .d-chart-heading h2 {
@@ -1094,6 +1094,105 @@ display: inline-flex; align-items: center; gap: 6px;
 
 .d-usage .d-granularity-tag svg {
 width: 12px; height: 12px;
+}
+
+/* 图表粒度切换：两个带图标和文案的按钮（按小时 / 按天），默认按小时。 */
+.d-usage .d-chart-view-switch {
+display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto;
+      padding: 2px; border-radius: 999px;
+      background: color-mix(in srgb, var(--d-border) 45%, transparent);
+}
+
+.d-usage .d-view-toggle {
+display: inline-flex; align-items: center; gap: 5px;
+      height: 26px; padding: 0 10px; border: 0; border-radius: 999px;
+      background: transparent; color: var(--d-muted);
+      font: 500 11px/1 var(--d-font-body); white-space: nowrap;
+      cursor: pointer;
+      transition: color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+
+.d-usage .d-view-toggle:hover {
+color: var(--d-accent-strong);
+}
+
+.d-usage .d-view-toggle.d-is-active {
+background: var(--d-surface); color: var(--d-accent-strong);
+      box-shadow: 0 1px 2px color-mix(in srgb, var(--d-fg) 12%, transparent);
+}
+
+.d-usage .d-view-toggle:focus-visible {
+outline: 2px solid var(--d-accent-strong); outline-offset: 2px;
+}
+
+.d-usage .d-view-toggle svg {
+width: 13px; height: 13px;
+}
+
+/* 各模型消费金额排行：条形长度 = 金额，条末标注金额与 Token 用量，模型名过长省略。 */
+.d-usage .d-rank-chart {
+display: flex; flex-direction: column; gap: 10px; margin-top: 16px;
+}
+
+.d-usage .d-rank-row {
+display: grid; grid-template-columns: minmax(0, 32%) minmax(0, 1fr); align-items: center; gap: 12px; min-width: 0;
+}
+
+.d-usage .d-rank-name {
+overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--d-fg); font: 500 12px/1.4 var(--d-font-body);
+}
+
+.d-usage .d-rank-row:hover .d-rank-name {
+color: var(--d-accent-strong);
+}
+
+.d-usage .d-rank-track {
+--d-rank-gap: 152px;
+      position: relative; height: 22px; min-width: 0;
+}
+
+.d-usage .d-rank-bar {
+position: absolute; top: 0; bottom: 0; left: 0; min-width: 3px;
+      display: block; border-radius: 0 4px 4px 0;
+      background: var(--d-accent);
+      transform-origin: left center;
+      animation: d-rank-grow .55s cubic-bezier(.16,.8,.26,1) backwards;
+}
+
+.d-usage .d-rank-tail {
+position: absolute; top: 50%; transform: translateY(-50%);
+      display: inline-flex; align-items: baseline; gap: 8px; white-space: nowrap; min-width: 0;
+}
+
+.d-usage .d-rank-value {
+color: var(--d-fg); font: 500 12px var(--d-font-mono); font-variant-numeric: tabular-nums;
+}
+
+.d-usage .d-rank-sub {
+color: var(--d-muted); font: 400 10px var(--d-font-mono); font-variant-numeric: tabular-nums;
+}
+
+@keyframes d-rank-grow {
+from { transform: scaleX(0); }
+}
+
+@media (max-width: 460px) {
+.d-usage .d-rank-row {
+grid-template-columns: minmax(0, 1fr); gap: 3px;
+}
+
+.d-usage .d-rank-track {
+--d-rank-gap: 128px;
+}
+
+.d-usage .d-rank-sub {
+font-size: 9.5px;
+}
+
+.d-usage .d-view-toggle {
+gap: 4px; padding: 0 8px; font-size: 10px;
+}
 }
 
 .d-usage .d-heatmap {

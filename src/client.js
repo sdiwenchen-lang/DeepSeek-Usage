@@ -56,6 +56,11 @@ function svg(paths, size) {
     }),
   });
 }
+// 图表视图切换图标：排行（横条）/ 趋势（竖列）。
+var VIEW_ICONS = {
+  rank: ["M3 7h12M3 12h18M3 17h8"],
+  trend: ["M4 20V10M10 20V4M16 20v-8M22 20H2"],
+};
 var ICONS = {
   layers: ["m12 3 9 5-9 5-9-5 9-5Z", "m3 12 9 5 9-5M3 16l9 5 9-5"],
   coins: ["M8 3a5 5 0 1 0 0 10A5 5 0 0 0 8 3Z", "M3 8v3a5 5 0 0 0 9.6 2M16 11a5 5 0 1 1-5 5", "M16 8v3m-2-1h4"],
@@ -478,6 +483,67 @@ function StackedChart(props) {
   });
 }
 
+// 各模型消费金额排行：条形长度 = 金额、按金额降序、条末直接标注金额。
+// 颜色跟随主题配置色：第一名用主色，其余由主色向背景色逐级淡化。
+function ModelCostRanking(props) {
+  var sel = props.sel;
+  var money = props.money;
+  var tip = props.onTip;
+  var list = props.models
+    .filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; })
+    .sort(function (a, b) { return (b.cost || 0) - (a.cost || 0); });
+  if (!list.length) return jsx("div", { className: "d-chart-empty", children: "当前范围没有数据" });
+  var max = Math.max(1, list[0].cost || 0);
+  return jsx("div", {
+    className: "d-rank-chart",
+    role: "group",
+    "aria-label": "各模型消费金额排行",
+    children: list.map(function (m, i) {
+      var ratio = Math.max(0, Math.min(1, (m.cost || 0) / max));
+      // 末端留出标注宽度（--d-rank-gap），保证最长的那根也有位置放数字。
+      var end = "calc((100% - var(--d-rank-gap, 152px)) * " + ratio.toFixed(4) + ")";
+      var tone = i === 0
+        ? "var(--d-accent)"
+        : "color-mix(in srgb, var(--d-accent) " + Math.max(24, 68 - i * 12) + "%, var(--d-surface))";
+      var hover = tip ? {
+        onMouseMove: function (e) {
+          tip(e, {
+            title: m.model,
+            total: money(m),
+            rows: [
+              { color: tone, name: "金额", value: money(m) },
+              { color: "var(--d-border)", name: "Tokens", value: fmtTokens(m.tokens) },
+              { color: "var(--d-border)", name: "调用", value: fmtInt(m.requests) + " 次" },
+            ],
+          });
+        },
+        onMouseLeave: function () { tip(null); },
+      } : {};
+      return jsxs("div", {
+        className: "d-rank-row",
+        ...hover,
+        children: [
+          jsx("span", { className: "d-rank-name", title: m.model, children: m.model }),
+          jsxs("div", {
+            className: "d-rank-track",
+            children: [
+              jsx("i", { className: "d-rank-bar", style: { width: end, background: tone } }),
+              jsxs("span", {
+                className: "d-rank-tail",
+                style: { left: "calc(" + end + " + 8px)" },
+                children: [
+                  jsx("span", { className: "d-rank-value", children: money(m) }),
+                  jsx("span", { className: "d-rank-sub", children: fmtK(m.tokens) + " tokens" }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }, m.model);
+    }),
+  });
+}
+
 function areaPath(values, W, H) {
   var max = Math.max.apply(null, values.concat([1]));
   var step = values.length > 1 ? W / (values.length - 1) : W;
@@ -808,6 +874,8 @@ function Dialog(props) {
   var anchorS = st({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
   var anchor = anchorS[0]; var setAnchor = anchorS[1];
   var dimS = st("day"); var dim = dimS[0]; var setDim = dimS[1];
+  // 「各模型消费金额」两个切换：按小时（趋势，默认）/ 按天（金额排行）。
+  var chartViewS = st("hour"); var chartView = chartViewS[0]; var setChartView = chartViewS[1];
   var detailS = st(null); var detail = detailS[0]; var setDetail = detailS[1];
   var tdS = st({ start: null, end: null, view: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 } });
   var td = tdS[0]; var setTd = tdS[1];
@@ -1512,6 +1580,8 @@ function Dialog(props) {
     ],
   });
 
+  var moneyOf = mode === "local" ? function (m) { return localMoney(m, fxNow); } : function (m) { return fmtMoney(m.cost); };
+
   var detailPage = jsxs("div", {
     className: "d-page-detail",
     children: [
@@ -1520,13 +1590,32 @@ function Dialog(props) {
       jsxs("section", { className: "d-chart-section", "aria-label": "各模型消费金额", children: [
         jsxs("div", { className: "d-chart-heading", children: [
           jsxs("h2", { children: [icon(CARD_ICONS.spend, 16), jsx("span", { children: "各模型消费金额" })] }),
-          jsxs("span", { className: "d-granularity-tag", children: [svg(ICONS.clock, 12), jsx("span", { children: hourly ? "按小时" : "按日" })] }),
+          jsxs("div", { className: "d-chart-view-switch", role: "group", "aria-label": "切换图表粒度", children: [
+            jsxs("button", {
+              type: "button",
+              className: "d-view-toggle" + (chartView === "hour" ? " d-is-active" : ""),
+              title: "按小时：每小时消费金额趋势",
+              "aria-pressed": chartView === "hour",
+              onClick: function () { setChartView("hour"); },
+              children: [svg(VIEW_ICONS.trend, 13), jsx("span", { children: "按小时" })],
+            }),
+            jsxs("button", {
+              type: "button",
+              className: "d-view-toggle" + (chartView === "day" ? " d-is-active" : ""),
+              title: "按天：各模型消费金额排行",
+              "aria-pressed": chartView === "day",
+              onClick: function () { setChartView("day"); },
+              children: [svg(VIEW_ICONS.rank, 13), jsx("span", { children: "按天" })],
+            }),
+          ] }),
         ] }),
-        jsx(StackedChart, { days: days, models: cm, sel: sel, hourly: hourly, onTip: showTip, metric: "cost" }),
-        jsx("div", { className: "d-model-legend", "aria-label": "消费金额模型图例", children: cm.filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; }).map(function (m, i) {
+        chartView === "day"
+          ? jsx(ModelCostRanking, { models: cm, sel: sel, money: moneyOf, onTip: showTip })
+          : jsx(StackedChart, { days: days, models: cm, sel: sel, hourly: hourly, onTip: showTip, metric: "cost" }),
+        chartView === "day" ? null : jsx("div", { className: "d-model-legend", "aria-label": "消费金额模型图例", children: cm.filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; }).map(function (m, i) {
           return jsx("span", { className: "d-model-legend-item", title: m.model, children: [jsx("i", { style: { background: AI[i % AI.length] } }), jsx("span", { children: m.model })] }, m.model);
         }) }),
-        jsx("div", { className: "d-legend d-legend-end", style: { justifyContent: "flex-end" }, children: jsx("span", { className: "d-chart-total", children: (mode === "local" ? localMoney(sums, fxNow) : fmtMoney(sums.cost)) + " CNY" }) }),
+        jsx("div", { className: "d-legend d-legend-end", style: { justifyContent: "flex-end" }, children: jsx("span", { className: "d-chart-total", children: moneyOf(sums) + " CNY" }) }),
       ] }),
       jsxs("div", { className: "d-mini-chart-grid", children: [
         jsx(MiniRequests, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip }),
