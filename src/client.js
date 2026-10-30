@@ -874,8 +874,8 @@ function Dialog(props) {
   var anchorS = st({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
   var anchor = anchorS[0]; var setAnchor = anchorS[1];
   var dimS = st("day"); var dim = dimS[0]; var setDim = dimS[1];
-  // 「各模型消费金额」两个切换：按小时（趋势，默认）/ 按天（金额排行）。
-  var chartViewS = st("hour"); var chartView = chartViewS[0]; var setChartView = chartViewS[1];
+  // 「各模型消费金额」两个维度：趋势（随时间，默认）/ 综合（所选区间按模型合计排行）。
+  var chartViewS = st("trend"); var chartView = chartViewS[0]; var setChartView = chartViewS[1];
   var detailS = st(null); var detail = detailS[0]; var setDetail = detailS[1];
   var tdS = st({ start: null, end: null, view: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 } });
   var td = tdS[0]; var setTd = tdS[1];
@@ -1590,29 +1590,29 @@ function Dialog(props) {
       jsxs("section", { className: "d-chart-section", "aria-label": "各模型消费金额", children: [
         jsxs("div", { className: "d-chart-heading", children: [
           jsxs("h2", { children: [icon(CARD_ICONS.spend, 16), jsx("span", { children: "各模型消费金额" })] }),
-          jsxs("div", { className: "d-chart-view-switch", role: "group", "aria-label": "切换图表粒度", children: [
+          jsxs("div", { className: "d-chart-view-switch", role: "group", "aria-label": "切换图表维度", children: [
             jsxs("button", {
               type: "button",
-              className: "d-view-toggle" + (chartView === "hour" ? " d-is-active" : ""),
-              title: "按小时：每小时消费金额趋势",
-              "aria-pressed": chartView === "hour",
-              onClick: function () { setChartView("hour"); },
-              children: [svg(VIEW_ICONS.trend, 13), jsx("span", { children: "按小时" })],
+              className: "d-view-toggle" + (chartView === "trend" ? " d-is-active" : ""),
+              title: "趋势：随时间变化的消费金额（当天按小时、跨天按天）",
+              "aria-pressed": chartView === "trend",
+              onClick: function () { setChartView("trend"); },
+              children: [svg(VIEW_ICONS.trend, 13), jsx("span", { children: "趋势" })],
             }),
             jsxs("button", {
               type: "button",
-              className: "d-view-toggle" + (chartView === "day" ? " d-is-active" : ""),
-              title: "按天：各模型消费金额排行",
-              "aria-pressed": chartView === "day",
-              onClick: function () { setChartView("day"); },
-              children: [svg(VIEW_ICONS.rank, 13), jsx("span", { children: "按天" })],
+              className: "d-view-toggle" + (chartView === "agg" ? " d-is-active" : ""),
+              title: "综合：所选区间内各模型消费金额合计排行",
+              "aria-pressed": chartView === "agg",
+              onClick: function () { setChartView("agg"); },
+              children: [svg(VIEW_ICONS.rank, 13), jsx("span", { children: "综合" })],
             }),
           ] }),
         ] }),
-        chartView === "day"
+        chartView === "agg"
           ? jsx(ModelCostRanking, { models: cm, sel: sel, money: moneyOf, onTip: showTip })
           : jsx(StackedChart, { days: days, models: cm, sel: sel, hourly: hourly, onTip: showTip, metric: "cost" }),
-        chartView === "day" ? null : jsx("div", { className: "d-model-legend", "aria-label": "消费金额模型图例", children: cm.filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; }).map(function (m, i) {
+        chartView === "agg" ? null : jsx("div", { className: "d-model-legend", "aria-label": "消费金额模型图例", children: cm.filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; }).map(function (m, i) {
           return jsx("span", { className: "d-model-legend-item", title: m.model, children: [jsx("i", { style: { background: AI[i % AI.length] } }), jsx("span", { children: m.model })] }, m.model);
         }) }),
         jsx("div", { className: "d-legend d-legend-end", style: { justifyContent: "flex-end" }, children: jsx("span", { className: "d-chart-total", children: moneyOf(sums) + " CNY" }) }),

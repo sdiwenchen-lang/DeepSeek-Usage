@@ -1096,7 +1096,7 @@ display: inline-flex; align-items: center; gap: 6px;
 width: 12px; height: 12px;
 }
 
-/* 图表粒度切换：两个带图标和文案的按钮（按小时 / 按天），默认按小时。 */
+/* 图表维度切换：两个带图标和文案的按钮（趋势 / 综合），默认趋势。 */
 .d-usage .d-chart-view-switch {
 display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto;
       padding: 2px; border-radius: 999px;
