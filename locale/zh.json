@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DeepSeek Usage · 用量与限额",
+    "description": "DSH 里的 DeepSeek 用量面板：查看官方账户余额与账单、每日用量日历，按可编辑的逐模型费率估算全部 Provider 的本地会话用量；支持会话 Token 与预估费用统计、侧边栏状态栏标签和图标自定义，以及每日 Token／金额限额与全会话后续模型调用熔断。"
+  }
+}

@@ -40,6 +40,8 @@ export const RECONCILE_PATH = `${BASE_PATH}/reconcile`;
 export const STATUS_PATH = `${BASE_PATH}/status`;
 export const PANEL_CSS_PATH = `${BASE_PATH}/panel.css`;
 export const PRICING_PATH = `${BASE_PATH}/pricing`;
+export const BUDGET_PATH = `${BASE_PATH}/budget`;
+export const MAX_BUDGET_BODY_BYTES = 200_000;
 
 /* ---------------- 回环栅栏 ---------------- */
 
@@ -75,13 +77,76 @@ export function pathOf(url) {
  * 判断请求是否可被服务。
  * @returns `undefined` 放行，否则 `{ status, body }`。
  */
-export function screenRequest(req) {
+export function screenRequest(req, methods = ["GET"]) {
   const method = req?.method;
-  if (method !== "GET") return { status: 405, body: { ok: false, error: "method-not-allowed" } };
+  if (!methods.includes(method)) return { status: 405, body: { ok: false, error: "method-not-allowed" } };
   const peerOk = isLoopbackAddress(req.socket?.remoteAddress);
   const hostOk = isLoopbackAddress(hostNameOf(req.headers?.host));
   if (peerOk && hostOk) return undefined;
   return { status: 403, body: { ok: false, error: "forbidden" } };
+}
+
+/* ---------------- budget 写请求 ---------------- */
+
+export function screenBudgetRequest(req, origin) {
+  const refused = screenRequest(req, ["GET", "POST"]);
+  if (refused || req.method === "GET") return refused;
+  const deny = (status, error) => ({ status, body: { ok: false, error } });
+  try {
+    const scheme = req.socket?.encrypted ? "https" : "http";
+    const expected = new URL(`${scheme}://${req.headers.host}`);
+    // 浏览器 GUI 可能经 127.0.0.1、localhost 或 [::1] 打开，而宿主配置的 origin 只有一个；
+    // 请求 Host 已通过环回校验，因此同端口、同协议的回环 Origin 均可接受。
+    const allowed = new Set([expected.origin]);
+    if (origin) allowed.add(new URL(origin).origin);
+    const sent = req.headers.origin;
+    const site = req.headers["sec-fetch-site"];
+    // 桌面端界面是 dsh-app://app/，Electron 代理转发时会删除 Origin/Sec-Fetch-Site，
+    // 只保留用于鉴权的宿主 cookie；该请求已通过环回 peer/Host 校验，按已鉴权同源处理。
+    const desktopShell = sent === "dsh-app://app";
+    if (!desktopShell) {
+      if (site === "cross-site") return deny(403, "invalid-origin");
+      if (typeof sent !== "string") {
+        if (!req.headers.cookie) return deny(403, "invalid-origin");
+      } else {
+        const parsed = new URL(sent);
+        if (sent !== parsed.origin) return deny(403, "invalid-origin");
+        const sameLoopbackPort = parsed.protocol === expected.protocol && parsed.port === expected.port &&
+          isLoopbackAddress(hostNameOf(parsed.host));
+        if (!allowed.has(parsed.origin) && !sameLoopbackPort) return deny(403, "invalid-origin");
+      }
+    }
+  } catch { return deny(403, "invalid-origin"); }
+  if (!/^application\/json(?:\s*;\s*charset\s*=\s*utf-8)?\s*$/i.test(req.headers["content-type"] ?? "")) return deny(415, "json-required");
+  const length = req.headers["content-length"];
+  if (length !== undefined && (typeof length !== "string" || !/^\d+$/.test(length))) return deny(400, "invalid-content-length");
+  if (length !== undefined && Number(length) > MAX_BUDGET_BODY_BYTES) return deny(413, "body-too-large");
+  return undefined;
+}
+
+export async function readBudgetBody(req) {
+  const chunks = [];
+  let length = 0;
+  const stream = typeof req.iterator === "function" ? req.iterator({ destroyOnReturn: false }) : req;
+  for await (const chunk of stream) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    length += bytes.length;
+    if (length > MAX_BUDGET_BODY_BYTES) {
+      req.resume?.();
+      throw Object.assign(new Error("body-too-large"), { code: "body-too-large", status: 413 });
+    }
+    chunks.push(bytes);
+  }
+  let body;
+  try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
+  catch { throw Object.assign(new Error("invalid-json"), { code: "invalid-json", status: 400 }); }
+  const invalid = () => { throw Object.assign(new Error("invalid-budget"), { code: "invalid-budget", status: 400 }); };
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some((key) => !["config", "rates", "mode"].includes(key)) ||
+      (body.config === undefined && body.rates === undefined && body.mode === undefined)) return invalid();
+  if (body.rates !== undefined) body.rates = parseRates(JSON.stringify(body.rates));
+  if (body.mode !== undefined && body.mode !== "local" && body.mode !== "official") return invalid();
+  return body;
 }
 
 /* ---------------- query 解析 ---------------- */
@@ -746,14 +811,14 @@ function attachRoutes(ctx, httpServer, deps) {
     res.end(body);
   };
 
-  const route = (path, handler) => {
+  const route = (path, handler, writable = false) => {
     ctx.effect(
       () =>
         httpServer.register({
           kind: "exact",
           path,
           handler: async (req, res) => {
-            const refused = screenRequest(req);
+            const refused = writable ? screenBudgetRequest(req, httpServer.getOrigin?.()) : screenRequest(req);
             if (refused !== undefined) return send(res, refused.status, refused.body);
             try {
               const out = await handler(req, res);
@@ -1017,6 +1082,13 @@ function attachRoutes(ctx, httpServer, deps) {
     local: local ? local.status(tzOffsetSeconds()) : { available: false },
   }));
 
+  route(BUDGET_PATH, async (req) => {
+    if (!deps.budget) throw Object.assign(new Error("budget-unavailable"), { code: "budget-unavailable" });
+    if (req.method === "POST") return deps.budget.save(await readBudgetBody(req));
+    const light = /(?:^|[?&])light=1(?:&|$)/.test(req.url ?? "");
+    return deps.budget.read({ withStatus: !light });
+  }, true);
+
   route(PRICING_PATH, async () => {
     if (!deps.pricing) throw Object.assign(new Error("pricing-unavailable"), { code: "pricing-unavailable" });
     return { ok: true, ...deps.pricing.meta(), schema: 2, currency: "USD", unit: "USD_PER_MILLION_TOKENS", models: deps.pricing.tables(), names: deps.pricing.names ? deps.pricing.names() : {} };
@@ -1115,6 +1187,9 @@ function attachRoutes(ctx, httpServer, deps) {
 }
 
 function errorStatus(error) {
+  if ([400, 413, 415].includes(error?.status)) return error.status;
+  if (error?.code === "invalid-budget") return 400;
+  if (error?.code === "budget-storage-unavailable" || error?.code === "budget-unavailable") return 503;
   if (error?.code === "unauthenticated") return 401;
   if (error?.code === "forbidden") return 403;
   if (error?.code === "local-unavailable" || error?.code === "reconcile-unavailable") return 503;

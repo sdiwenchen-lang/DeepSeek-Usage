@@ -1,7 +1,7 @@
 {
   "name": "deepseek-usage",
-  "version": "0.1.6",
-  "description": "DeepSeek 官方口径的账户余额与每日 Token 用量 —— DeepSeek Harness 插件：点侧边栏「用量」弹出居中的用量与余额面板，数据直接复用 DSH 里已登录的 DeepSeek 账号",
+  "version": "0.1.7",
+  "description": "DSH 里的 DeepSeek 用量面板：查看官方账户余额与账单、每日用量日历，按可编辑的逐模型费率估算全部 Provider 的本地会话用量；支持会话 Token 与预估费用统计、侧边栏状态栏标签和图标自定义，以及每日 Token／金额限额与全会话后续模型调用熔断。",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -16,10 +16,16 @@
     "./apiclient": "./src/apiclient.js",
     "./cache": "./src/cache.js",
     "./http": "./src/http.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "src",
+    "icon.svg",
+    "locale",
+    "docs",
+    "CONTEXT.md",
     "cordis.patch.yml",
     "LICENSE",
     "README.md",
@@ -30,7 +36,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>112640){console.error('bundle too large: '+s+'B > 112640B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
+    "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>126976){console.error('bundle too large: '+s+'B > 126976B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
   },
   "keywords": [
     "dsh-plugin",

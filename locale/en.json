@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DeepSeek Usage",
+    "description": "A DeepSeek usage panel for DSH with official account balance and billing, a daily usage calendar, and local usage estimates across all providers using editable per-model rates. Track tokens and estimated costs by session, customize sidebar status labels and icons, and stop subsequent model calls across sessions when daily token or CNY limits are reached."
+  }
+}

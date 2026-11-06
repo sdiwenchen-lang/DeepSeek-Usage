@@ -63,7 +63,7 @@ async function listSnapshotsOf(persistence) {
 async function readSessionEvents(persistence, sessionId) {
   if (typeof persistence.readFrom === "function") {
     const result = await persistence.readFrom(sessionId, 0);
-    return result?.events ?? [];
+    return { events: result?.events ?? [], inheritedEventCount: result?.inheritedEventCount ?? 0 };
   }
   if (typeof persistence.open !== "function") {
     throw new Error("session persistence has no open/readFrom method");
@@ -71,7 +71,7 @@ async function readSessionEvents(persistence, sessionId) {
   const reader = await persistence.open(sessionId, "read");
   try {
     const result = await reader.read(0);
-    return result?.events ?? [];
+    return { events: result?.events ?? [], inheritedEventCount: reader.inheritedEventCount ?? 0 };
   } finally {
     try {
       await reader.close?.();
@@ -102,7 +102,7 @@ function rangeDates(from, to) {
 
 function aggregate(state, options) {
   const { from, to, tz, scope, granularity, now, officialProviders, pricing } = options;
-  const points = new Map(), models = new Map(), providers = new Map();
+  const points = new Map(), models = new Map(), providers = new Map(), sessions = [];
   const accumulator = (extra = {}) => ({ ...zeroBuckets(), cost: 0, usd: 0, pricedTokens: 0, unpricedTokens: 0, ...extra });
   const totals = accumulator();
   let firstAt = null, lastAt = null;
@@ -127,6 +127,11 @@ function aggregate(state, options) {
       costComplete: row.unpricedTokens === 0 };
   };
   for (const session of state.sessions.values()) {
+    const sessionModels = new Map();
+    const sessionTotal = accumulator({ sessionId: session.sessionId,
+      title: session.title || "会话 " + String(session.sessionId).slice(0, 8),
+      parentSession: session.header?.parentSession ?? null,
+      subagent: session.header?.origin === "subagent" });
     if (session.firstAt !== null && (firstAt === null || session.firstAt < firstAt)) firstAt = session.firstAt;
     if (session.lastAt !== null && (lastAt === null || session.lastAt > lastAt)) lastAt = session.lastAt;
     for (const [hour, routes] of session.hours) {
@@ -139,13 +144,16 @@ function aggregate(state, options) {
         const quote = pricing.quote(model, buckets);
         const pointModel = point.models.get(model) ?? accumulator({ model });
         const globalModel = models.get(model) ?? accumulator({ model });
+        const sessionModel = sessionModels.get(model) ?? accumulator({ model });
         const globalProvider = providers.get(provider) ?? accumulator({ provider, scope: officialProviders.has(provider) ? "official" : "other" });
-        for (const target of [point, pointModel, globalModel, globalProvider, totals]) add(target, buckets, quote);
+        for (const target of [point, pointModel, globalModel, globalProvider, totals, sessionModel, sessionTotal]) add(target, buckets, quote);
+        sessionModels.set(model, sessionModel);
         point.models.set(model, pointModel);
         models.set(model, globalModel);
         providers.set(provider, globalProvider);
       }
     }
+    if (sessionTotal.requests > 0) sessions.push({ ...finish(sessionTotal), models: [...sessionModels.values()].map(finish) });
   }
   const today = localDayOf(now, tz);
   for (const date of rangeDates(from, to)) {
@@ -158,7 +166,7 @@ function aggregate(state, options) {
   const total = finish(totals);
   return { points: [...points.values()].map((point) => ({ ...finish(point), models: sorted(point.models.values()) }))
       .sort((a, b) => a.key.localeCompare(b.key)),
-    models: orderedModels, providers: sorted(providers.values()), totals: total,
+    models: orderedModels, providers: sorted(providers.values()), sessions: sessions.sort((a, b) => b.tokens - a.tokens || String(a.sessionId).localeCompare(String(b.sessionId))), totals: total,
     tokens: { total: total.tokens, hit: total.hit, miss: total.miss, cacheWrite: total.cacheWrite, output: total.output, hitRate: total.hitRate },
     requests: total.requests, cost: total.cost, usd: total.usd,
     pricedTokens: total.pricedTokens, unpricedTokens: total.unpricedTokens,
@@ -256,8 +264,8 @@ export function createLocalSource(deps = {}) {
       }
 
       try {
-        const events = await readSessionEvents(persistence, sessionId);
-        const folded = foldSession(events, { tz });
+        const { events, inheritedEventCount } = await readSessionEvents(persistence, sessionId);
+        const folded = foldSession(events, { tz, inheritedEventCount });
         state.sessions.set(sessionId, {
           sessionId,
           revision,
@@ -301,12 +309,17 @@ export function createLocalSource(deps = {}) {
     return state.sweeping;
   }
 
-  function coverageOf(state, tz, scope) {
+  function coverageOf(state, tz, scope, from, to) {
+    let missingUsage = 0;
     let sessionsWithUsage = 0;
     let sessionsWithSubagent = 0;
     let firstAt = null;
     let lastAt = null;
     for (const session of state.sessions.values()) {
+      for (const [hour, count] of Object.entries(session.missingUsageHours ?? {})) {
+        const date = hour.slice(0, 10);
+        if ((!from || date >= from) && (!to || date <= to)) missingUsage += count;
+      }
       if (session.samples > 0) sessionsWithUsage += 1;
       if (session.header?.parentSession !== undefined || session.header?.origin === "subagent") {
         sessionsWithSubagent += 1;
@@ -317,6 +330,8 @@ export function createLocalSource(deps = {}) {
     return {
       sessions: state.sessions.size,
       sessionsWithUsage,
+      missingUsage,
+      complete: state.available && !state.error && !state.failed && !state.truncated && missingUsage === 0,
       sessionsWithSubagent,
       failed: state.failed,
       truncated: state.truncated,
@@ -386,11 +401,12 @@ export function createLocalSource(deps = {}) {
       points: aggregated.points,
       days: aggregated.points,
       models: aggregated.models,
+      sessions: aggregated.sessions,
       providers: aggregated.providers,
       totals: aggregated.totals,
       tokens: aggregated.tokens,
       requests: aggregated.totals.requests,
-      coverage: coverageOf(state, tz, scope),
+      coverage: coverageOf(state, tz, scope, from, to),
       cost: aggregated.cost,
       usd: aggregated.usd,
       cache: aggregated.cache,

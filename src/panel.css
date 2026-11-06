@@ -1096,7 +1096,7 @@ display: inline-flex; align-items: center; gap: 6px;
 width: 12px; height: 12px;
 }
 
-/* 图表维度切换：两个带图标和文案的按钮（趋势 / 综合），默认趋势。 */
+/* 两组图表维度切换共用同一按钮模板。 */
 .d-usage .d-chart-view-switch {
 display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto;
       padding: 2px; border-radius: 999px;
@@ -1993,7 +1993,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 }
 .d-usage .d-fx-row:focus-within {
   border-color: var(--d-accent);
-  box-shadow: 0 0 0 3px var(--d-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--d-accent-soft);
 }
 .d-usage .d-fx-label {
   flex: none;
@@ -2191,17 +2191,28 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   gap: 12px;
 }
 .d-usage .d-tip-head span {
-  color: var(--d-muted);
-  font-size: 11px;
-  white-space: nowrap;
+  display: -webkit-box;
+  min-width: 0;
+  max-height: calc(1.45em * 2);
+  overflow: hidden;
+  color: var(--d-fg);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .d-usage .d-tip-head b {
   display: block;
+  flex: none;
   margin: 0;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -.01em;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .d-usage .d-tip-rows {
   display: flex;
@@ -3216,10 +3227,10 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   color: var(--d-fg);
 }
 .d-usage .d-settings-nav-item.is-active,
-.d-usage .d-settings-tab-appearance .d-settings-nav-item:nth-child(1),
-.d-usage .d-settings-tab-seat .d-settings-nav-item:nth-child(2),
-.d-usage .d-settings-tab-pricing .d-settings-nav-item:nth-child(3),
-.d-usage .d-settings-tab-refresh .d-settings-nav-item:nth-child(4),
+.d-usage .d-settings-tab-appearance .d-settings-nav-item[data-setting="appearance"],
+.d-usage .d-settings-tab-seat .d-settings-nav-item[data-setting="seat"],
+.d-usage .d-settings-tab-pricing .d-settings-nav-item[data-setting="pricing"],
+.d-usage .d-settings-tab-refresh .d-settings-nav-item[data-setting="refresh"],
 .d-usage .d-settings-panel:not([class*="d-settings-tab-"]) .d-settings-nav-item:nth-child(2) {
   background: var(--d-accent-soft);
   color: var(--d-accent-strong);
@@ -3554,4 +3565,86 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
     min-height: 240px;
     max-height: min(240px, calc(100vh - 96px)) !important;
   }
+}
+
+/* Usage views and daily limits share the existing theme and compact controls. */
+.d-usage .d-token-card > .d-mini-chart-head { justify-content: space-between; flex-wrap: wrap; }
+.d-usage .d-view-toggle:disabled { opacity: .5; cursor: not-allowed; }
+.d-usage .d-token-total { margin-top: 12px; }
+.d-usage .d-cost-total { margin-top: 12px; }
+.d-usage .d-token-content { animation: d-mini-chart-in .2s ease-out both; }
+.d-usage .d-settings-tab-budget .d-settings-nav-item[data-setting="budget"] { color: var(--d-accent-strong); background: var(--d-accent-soft); }
+.d-usage .d-settings-panel.d-settings-tab-budget > .d-settings-budget { display: grid; }
+.d-usage .d-budget-warning { color: var(--d-fg); font: 400 13px/1.65 var(--d-font-body); }
+.d-usage .d-budget-banner { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 12px 16px; border-radius: 6px; background: var(--d-accent-soft); color: var(--d-accent-strong); font-size: 13px; }
+.d-usage .d-budget-banner.d-budget-banner-blocked { background: color-mix(in srgb, var(--d-danger) 12%, var(--d-surface)); color: var(--d-danger); }
+.d-usage .d-budget-banner.d-budget-banner-blocked .d-settings-link { color: var(--d-danger); }
+@media (prefers-reduced-motion: reduce) {
+  .d-usage .d-token-content { animation: none; }
+}
+
+/* Clear view names, stable settings navigation, and discoverable icon actions. */
+.d-usage .d-page-detail > .d-token-card { margin-top: 20px; }
+.d-usage .d-token-card > .d-mini-chart-head, .d-usage .d-chart-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.d-usage .d-token-card > .d-mini-chart-head h3, .d-usage .d-chart-heading h2 { min-width: 0; white-space: normal; }
+.d-usage .d-token-card .d-chart-view-switch, .d-usage .d-chart-heading .d-chart-view-switch { margin-left: auto; justify-content: flex-end; }
+.d-usage .d-seat-pref-heading { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.d-usage .d-settings-panel .d-seat-pref-heading .d-settings-label { margin: 0; padding: 0; }
+.d-usage .d-seat-pref-note { margin: 0; color: var(--d-muted); font: 400 12px/1.5 var(--d-font-body); }
+.d-usage .d-help-hint { position: relative; display: inline-flex; }
+.d-usage .d-help-mark { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--d-accent-strong); font: 600 16px/1 var(--d-font-body); cursor: help; }
+.d-usage .d-help-mark:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
+.d-usage .d-help-content { position: absolute; top: calc(100% + 4px); right: -8px; z-index: 40; box-sizing: border-box; width: 164px; padding: 8px; border: 1px solid var(--d-border); border-radius: 6px; background: var(--d-surface); color: var(--d-fg); font: 400 12px/1.6 var(--d-font-body); box-shadow: 0 4px 16px var(--d-fg-soft); visibility: hidden; opacity: 0; transition: opacity .15s ease; }
+.d-usage .d-help-hint:hover .d-help-content, .d-usage .d-help-hint:focus-within .d-help-content { visibility: visible; opacity: 1; }
+.d-usage .d-settings-panel.d-settings-tab-seat > .d-settings-group { gap: 4px; padding-top: 8px; padding-bottom: 8px; }
+.d-usage .d-settings-panel .d-fx-btn, .d-usage .d-settings-panel .d-fx-input { text-align: center; }
+.d-usage .d-settings-panel .d-fx-input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  line-height: 26px;
+}
+.d-usage .d-settings-panel .d-fx-btn { display: inline-flex; align-items: center; justify-content: center; }
+.d-usage [data-tooltip] { position: relative; }
+.d-usage [data-tooltip]::after { content: attr(data-tooltip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; box-sizing: border-box; width: max-content; max-width: min(256px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--d-border); border-radius: 6px; background: var(--d-fg); color: var(--d-surface); font: 400 12px/1.5 var(--d-font-body); text-align: left; white-space: normal; pointer-events: none; opacity: 0; visibility: hidden; transform: translateY(-2px); transition: opacity .15s ease, transform .15s ease; }
+.d-usage [data-tooltip]:hover::after, .d-usage [data-tooltip]:focus-visible::after { opacity: 1; visibility: visible; transform: translateY(0); }
+.d-usage .d-icon-btn[data-tooltip]::after { max-width: min(256px, calc(100vw - 32px)); padding: 8px; font-size: 12px; line-height: 1.5; white-space: normal; }
+.d-usage .d-icon-choice[data-tooltip]::after { top: auto; bottom: calc(100% + 4px); }
+@media (max-width: 480px) {
+  .d-usage .d-chart-heading h2, .d-usage .d-mini-chart-head h3 { flex-basis: 100%; }
+  .d-usage .d-chart-view-switch { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .d-usage [data-tooltip]::after, .d-usage .d-help-content { transition: none; }
+}
+
+/* Inline daily limits and shared ranking presentation. */
+.d-usage .d-session-rank-chart { max-height: 264px; overflow-y: auto; overflow-x: hidden; padding: 0 4px 4px 0; scrollbar-width: thin; }
+.d-usage .d-rank-row:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; border-radius: 4px; }
+.d-usage .d-settings-panel.d-settings-tab-appearance > .d-settings-appearance { transform: translateY(-2px); }
+.d-usage .d-settings-panel.d-settings-tab-budget > .d-settings-budget { align-content: start; gap: 8px; overflow: hidden; }
+.d-usage .d-budget-settings { display: grid; gap: 4px; min-width: 0; padding: 0; }
+.d-usage .d-budget-settings .d-fx-row {
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+}
+.d-usage .d-budget-settings .d-settings-label { margin: 0; padding: 0; }
+.d-usage .d-budget-inline-status { min-width: 0; margin-top: 0; color: var(--d-muted); font: 400 12px/1.5 var(--d-font-body); text-align: left; overflow-wrap: anywhere; }
+.d-usage .d-budget-inline-status.d-budget-warning { color: var(--d-danger); }
+
+/* 会话图说明与限额提示：左对齐，面板尺寸保持与其他设置页一致。 */
+.d-usage .d-session-token-view { min-width: 0; }
+.d-usage .d-token-scope-note { margin: 10px 0 0; color: var(--d-muted); font: 400 11.5px/1.5 var(--d-font-body); }
+
+/* 每日限额沿用汇率配置的标题、行式显示和底部说明。 */
+.d-usage .d-budget-hint { display: grid; gap: 2px; min-width: 0; color: var(--d-muted); font: 400 11.5px/1.45 var(--d-font-body); overflow-wrap: anywhere; }
+.d-usage .d-budget-hint b { color: var(--d-danger); font-weight: 600; }
+
+@media (max-width: 560px) {
+  .d-usage .d-settings-panel .d-fx-input { font-size: 16px; }
 }

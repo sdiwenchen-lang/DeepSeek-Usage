@@ -113,7 +113,6 @@ function fmtTokens(n) {
 function fmtK(n) {
   var v = Number(n) || 0;
   var cut = function (x) { return String(Number(x.toFixed(2))); };
-  if (v >= 1e9) return cut(v / 1e9) + "B";
   if (v >= 1e6) return cut(v / 1e6) + "M";
   if (v >= 1e3) return cut(v / 1e3) + "K";
   return String(Math.round(v));
@@ -193,6 +192,37 @@ function localMoney(row, fx) {
   if (!row.tokens && !(row.hit || row.miss || row.cacheWrite || row.output)) return fmtMoney(0);
   if (!row.pricedTokens) return "暂无费率";
   return row.cost != null ? fmtMoney(row.cost) : row.usd != null ? fmtMoney(row.usd * (fx > 0 ? fx : DEFAULT_FX)) : "—";
+}
+
+var TODAY = { key: "", value: null, at: 0, promise: null, seq: 0 };
+function todayKey(mode) {
+  return mode + "|" + new Date(Date.now() + TZ * 1000).toISOString().slice(0, 10) + "|" + (mode === "local" ? ratesParam() : "");
+}
+function todayEmit(mode, value, key) {
+  try { window.dispatchEvent(new CustomEvent("deepseek-usage:today", { detail: { mode: mode, value: value, key: key } })); } catch (e) {  }
+}
+function todayLoad(mode, force) {
+  var key = todayKey(mode);
+  if (!force && TODAY.key === key && TODAY.value !== null) {
+    todayEmit(mode, TODAY.value, key);
+    if (Date.now() - TODAY.at < 15000) return Promise.resolve(TODAY.value);
+  }
+  if (!force && TODAY.key === key && TODAY.promise) return TODAY.promise;
+  var seq = ++TODAY.seq;
+  var path = mode === "local" ? "/local?range=today&tz=" + TZ + "&scope=all" + ratesParam() : "/official?range=today&tz=" + TZ;
+  var p = getJSON(path).then(function (payload) {
+    var rows = (payload.points && payload.points.length ? payload.points : payload.days) || [];
+    var value = total(rows, null);
+    if (seq === TODAY.seq) { TODAY = { key: key, value: value, at: Date.now(), promise: null, seq: seq }; todayEmit(mode, value, key); }
+    else if (key !== TODAY.key) todayEmit(mode, value, key);
+    return value;
+  }).catch(function () {
+    if (seq === TODAY.seq) { TODAY.value = null; TODAY.at = 0; TODAY.promise = null; todayEmit(mode, null, key); }
+    else if (key !== TODAY.key) todayEmit(mode, null, key);
+    return null;
+  });
+  TODAY = { key: key, value: TODAY.key === key ? TODAY.value : null, at: 0, promise: p, seq: seq };
+  return p;
 }
 
 function modelsOf(days) {
@@ -485,21 +515,24 @@ function StackedChart(props) {
 
 // 各模型消费金额排行：条形长度 = 金额、按金额降序、条末直接标注金额。
 // 颜色跟随主题配置色：第一名用主色，其余由主色向背景色逐级淡化。
-function ModelCostRanking(props) {
+function UsageRanking(props) {
   var sel = props.sel;
-  var money = props.money;
+  var money = typeof props.money === "function" ? props.money : null;
   var tip = props.onTip;
+  var tokenMode = props.metric === "tokens";
+  var scopeLabel = props.scopeLabel || "各会话";
+  var valueOf = function (row) { return (tokenMode ? row.tokens : row.cost) || 0; };
   var list = props.models
     .filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; })
-    .sort(function (a, b) { return (b.cost || 0) - (a.cost || 0); });
+    .sort(function (a, b) { return valueOf(b) - valueOf(a); });
   if (!list.length) return jsx("div", { className: "d-chart-empty", children: "当前范围没有数据" });
-  var max = Math.max(1, list[0].cost || 0);
+  var max = valueOf(list[0]) || 1;
   return jsx("div", {
-    className: "d-rank-chart",
+    className: "d-rank-chart" + (tokenMode ? " d-session-rank-chart" : ""),
     role: "group",
-    "aria-label": "各模型消费金额排行",
+    "aria-label": tokenMode ? (money ? scopeLabel + " Token 与预估费用排行" : scopeLabel + " Token 用量排行") : "各模型消费金额排行",
     children: list.map(function (m, i) {
-      var ratio = Math.max(0, Math.min(1, (m.cost || 0) / max));
+      var ratio = Math.max(0, Math.min(1, valueOf(m) / max));
       // 末端留出标注宽度（--d-rank-gap），保证最长的那根也有位置放数字。
       var end = "calc((100% - var(--d-rank-gap, 152px)) * " + ratio.toFixed(4) + ")";
       var tone = i === 0
@@ -507,23 +540,26 @@ function ModelCostRanking(props) {
         : "color-mix(in srgb, var(--d-accent) " + Math.max(24, 68 - i * 12) + "%, var(--d-surface))";
       var hover = tip ? {
         onMouseMove: function (e) {
+          var rows = [];
+          if (money) rows.push({ color: tone, name: tokenMode ? "预估费用" : "金额", value: money(m) });
+          if (!tokenMode) rows.push({ color: "var(--d-border)", name: "Token", value: fmtTokens(m.tokens) });
+          rows.push({ color: "var(--d-border)", name: "请求", value: fmtInt(m.requests) + " 次" });
           tip(e, {
-            title: m.model,
-            total: money(m),
-            rows: [
-              { color: tone, name: "金额", value: money(m) },
-              { color: "var(--d-border)", name: "Tokens", value: fmtTokens(m.tokens) },
-              { color: "var(--d-border)", name: "调用", value: fmtInt(m.requests) + " 次" },
-            ],
+            title: m.title || m.model,
+            total: tokenMode ? fmtK(m.tokens) + " Tokens" : money(m),
+            rows: rows,
           });
         },
         onMouseLeave: function () { tip(null); },
       } : {};
+      var nativeTitle = (m.title || m.model) + (tokenMode ? " · " + fmtK(m.tokens) + " Tokens" : "") + (money ? " · " + money(m) : "");
       return jsxs("div", {
         className: "d-rank-row",
+        tabIndex: 0,
+        title: nativeTitle,
         ...hover,
         children: [
-          jsx("span", { className: "d-rank-name", title: m.model, children: m.model }),
+          jsx("span", { className: "d-rank-name", title: m.title || m.model, children: m.model }),
           jsxs("div", {
             className: "d-rank-track",
             children: [
@@ -532,14 +568,14 @@ function ModelCostRanking(props) {
                 className: "d-rank-tail",
                 style: { left: "calc(" + end + " + 8px)" },
                 children: [
-                  jsx("span", { className: "d-rank-value", children: money(m) }),
-                  jsx("span", { className: "d-rank-sub", children: fmtK(m.tokens) + " tokens" }),
+                  jsx("span", { className: "d-rank-value", children: tokenMode ? fmtK(m.tokens) + " Tokens" : money(m) }),
+                  jsx("span", { className: "d-rank-sub", children: tokenMode ? (money ? money(m) : fmtInt(m.requests) + " 次请求") : fmtK(m.tokens) + " tokens" }),
                 ],
               }),
             ],
           }),
         ],
-      }, m.model);
+      }, m.id || m.model);
     }),
   });
 }
@@ -612,6 +648,68 @@ function MiniRequests(props) {
   });
 }
 
+function TokenUsageCard(props) {
+  var official = !!props.official;
+  var [view, setView] = useState(official ? "trend" : "sessions");
+  useEffect(function () { setView(official ? "trend" : "sessions"); }, [official]);
+  var sessionView = view === "sessions";
+  return jsxs("section", { className: "d-mini-chart-card d-token-card", children: [
+    jsxs("div", { className: "d-mini-chart-head", children: [
+      jsxs("h3", { children: [svg(P.tokens, 14), sessionView ? (official ? "官方模型 · 本机会话 Token" : "各会话 Token 用量") : "各模型 Token 用量"] }),
+      jsx("div", { className: "d-chart-view-switch", role: "group", "aria-label": "切换 Token 图表维度", children: [["sessions", "会话排行"], ["trend", "模型走势"]].map(function (item) {
+        var selected = sessionView ? item[0] === "sessions" : item[0] === "trend";
+        return jsxs("button", { type: "button", className: "d-view-toggle" + (selected ? " d-is-active" : ""), "aria-pressed": selected,
+          "data-tooltip": item[0] === "trend" ? "按时间查看各模型的 Token 用量，当天按小时、跨天按天" : undefined,
+          title: item[0] === "trend" ? "模型走势：按时间查看各模型 Token 用量" : undefined,
+          onClick: function () { if (props.onTip) props.onTip(null); setView(item[0]); },
+          children: [svg(item[0] === "trend" ? VIEW_ICONS.trend : VIEW_ICONS.rank, 13), item[1]] }, item[0]);
+      }) }),
+    ] }),
+    sessionView ? jsx(SessionTokens, props) : jsx(MiniTokens, props),
+  ] });
+}
+
+function SessionTokens(props) {
+  var scope = props.sel;
+  if (!scope && props.official) scope = (props.models || []).map(function (m) { return m.model; });
+  var list = props.sessions || [], byId = {};
+  list.forEach(function (session) { byId[session.sessionId] = session; });
+  function rootOf(session) {
+    var seen = {}, cur = session;
+    while (cur && cur.subagent && cur.parentSession && byId[cur.parentSession] && !seen[cur.parentSession]) {
+      seen[cur.parentSession] = 1;
+      cur = byId[cur.parentSession];
+    }
+    return cur || session;
+  }
+  var groups = {};
+  list.forEach(function (session) {
+    var root = rootOf(session), group = groups[root.sessionId] || (groups[root.sessionId] = { root: root, models: [], subs: 0 });
+    group.models = group.models.concat(session.models || []);
+    if (session !== root) group.subs += 1;
+  });
+  var rows = Object.keys(groups).map(function (id, index) {
+    var group = groups[id], session = group.root;
+    var row = Object.assign({}, session, total(normalizeDays([{ models: group.models }]), scope));
+    var name = String(session.title || "").replace(/^(会话\s+)?session-/i, "$1").trim();
+    if (!name || name === "会话") name = "未命名会话 " + (index + 1);
+    var kind = !group.subs && session.subagent ? "子会话" : !group.subs && session.parentSession ? "分叉会话" : "";
+    var extra = group.subs ? "（含 " + group.subs + " 个子会话）" : "";
+    return Object.assign(row, { id: session.sessionId, model: name, title: kind ? kind + " · " + name : name + extra });
+  }).filter(function (row) { return row.tokens > 0 || row.requests > 0; });
+  if (!rows.length) return jsx("div", { className: "d-chart-empty", children: props.official ? "当前范围没有涉及官方模型的会话用量" : "当前筛选范围没有会话用量" });
+  var shown = rows.reduce(function (sum, row) { return sum + (row.tokens || 0); }, 0);
+  var note = "本统计基于 DeepSeek 本机会话数据，与官方统计口径存在差异";
+  if (typeof props.officialTokens === "number" && props.officialTokens > 0) note += "：本机 " + fmtK(shown) + " / 官方账单 " + fmtK(props.officialTokens);
+  note += "，请以官方账单为准。";
+  return jsxs("div", { className: "d-session-token-view", children: [
+    jsx(UsageRanking, { models: rows, sel: null, metric: "tokens", onTip: props.onTip,
+      scopeLabel: props.official ? "官方模型相关本机会话" : "各会话",
+      money: props.official ? null : function (row) { return localMoney(row, props.fx) + (row.costComplete === false && row.pricedTokens > 0 ? "（部分）" : ""); } }),
+    props.official ? jsx("p", { className: "d-token-scope-note", children: note }) : null,
+  ] });
+}
+
 function MiniTokens(props) {
   var days = props.days;
   var sel = props.sel;
@@ -622,13 +720,10 @@ function MiniTokens(props) {
   var max = Math.max.apply(null, values.concat([1]));
   var idx = [0, Math.floor((days.length - 1) / 2), days.length - 1].filter(function (v, i, a) { return a.indexOf(v) === i; });
   var legend = models.filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; });
-  return jsxs("section", {
-    className: "d-mini-chart-card",
+  return jsxs("div", {
+    className: "d-token-content",
     children: [
-      jsxs("div", { className: "d-mini-chart-head", children: [
-        jsxs("h3", { children: [svg(P.tokens, 14), "各模型 Token 用量"] }),
-        jsx("span", { className: "d-mini-total", children: fmtTokens(total(days, sel).tokens) + " Tokens" }),
-      ] }),
+      jsx("div", { className: "d-mini-total d-token-total", children: fmtTokens(total(days, sel).tokens) + " Tokens" }),
       jsxs("div", { className: "d-mini-chart-body", children: [
         jsxs("div", { className: "d-mini-y-axis", children: [
           jsx("span", { children: fmtK(max) }),
@@ -778,7 +873,7 @@ function RateDialog(props) {
     props.onSave({ schema: 2, usdToCny: DEFAULT_FX, models: {}, hidden: [] }, true);
   };
   var goPage = d => { setPage(Math.max(0, Math.min(pages - 1, current + d))); setEdit(""); setBuff(null); setSel({}); };
-  var ib = (key, label, onClick, child, extra) => jsx("button", { type: "button", className: "d-rate-icon" + (extra || ""), "aria-label": label, title: label, onClick: onClick, children: child }, key);
+  var ib = (key, label, onClick, child, extra) => jsx("button", { type: "button", className: "d-rate-icon" + (extra || ""), "aria-label": label, title: label, "data-tooltip": label, onClick: onClick, children: child }, key);
   var head = [jsx("th", { scope: "col", className: "d-rate-check", children: jsx("input", { type: "checkbox", checked: allOn, disabled: !visible.length, onChange: () => { var n = {}; if (!allOn) visible.forEach(k => { n[k] = 1; }); setSel(n); }, "aria-label": "全选本页" }) }, "check")].concat(["模型", "输入", "输出", "缓存命中", "缓存写入", "操作"].map((label, i) => jsx("th", { scope: "col", children: label }, i)));
   var body = [];
   if (draft) {
@@ -812,12 +907,12 @@ function RateDialog(props) {
   return jsx("div", { className: "d-dialog-backdrop", onMouseDown: e => { if (e.target === e.currentTarget) props.onClose(); }, children: jsxs("section", {
     className: "d-detail-dialog d-rate-dialog", role: "dialog", "aria-modal": "true", "aria-label": "管理定价",
     children: [
-      jsxs("div", { className: "d-dialog-title-row", children: [jsx("h2", { children: "管理定价" }), jsx("button", { type: "button", className: "d-icon-btn", "aria-label": "关闭定价", onClick: props.onClose, children: svg(P.close, 16) })] }),
+      jsxs("div", { className: "d-dialog-title-row", children: [jsx("h2", { children: "管理定价" }), jsx("button", { type: "button", className: "d-icon-btn", "aria-label": "关闭定价", "data-tooltip": "关闭定价", onClick: props.onClose, children: svg(P.close, 16) })] }),
       jsxs("div", { className: "d-rate-search", children: [
         jsx("input", { type: "search", placeholder: "搜索模型名称或标识", "aria-label": "搜索模型费率", value: search, onChange: e => { setSearch(e.target.value); setPage(0); setEdit(""); setBuff(null); setSel({}); } }),
         jsx("button", { type: "button", className: "d-rate-reset", onClick: resetAll, children: "恢复默认" }),
         jsx("button", { type: "button", className: "d-rate-batch", disabled: !selKeys.length, onClick: () => remove(selKeys), title: "勾选行后批量删除", children: "删除所选" + (selKeys.length ? " (" + selKeys.length + ")" : "") }),
-        jsx("button", { type: "button", className: "d-rate-add-btn", "aria-label": "新增模型", title: "新增模型", onClick: openDraft, children: "+" }),
+        jsx("button", { type: "button", className: "d-rate-add-btn", "aria-label": "新增模型", "data-tooltip": "新增模型", title: "新增模型", onClick: openDraft, children: "+" }),
       ] }),
       error ? jsx("p", { className: "d-rate-error", role: "alert", children: error }) : null,
       jsx("div", { className: "d-rate-scroll", children: body.length ? jsxs("table", { className: "d-rate-table", children: [
@@ -825,12 +920,138 @@ function RateDialog(props) {
         jsx("tbody", { children: body }),
       ] }) : jsx("div", { className: "d-rate-empty", children: empty }) }),
       jsxs("div", { className: "d-rate-foot", children: [jsx("span", { children: "每页 20 条 · 共 " + keys.length + " 条" }), keys.length ? jsxs("span", { className: "d-rate-pager", children: [
-        jsx("button", { type: "button", "aria-label": "上一页", disabled: current <= 0, onClick: () => goPage(-1), children: "‹" }, "prev"),
+        jsx("button", { type: "button", "aria-label": "上一页", "data-tooltip": "上一页", disabled: current <= 0, onClick: () => goPage(-1), children: "‹" }, "prev"),
         jsx("b", { children: (current + 1) + " / " + pages }, "page"),
-        jsx("button", { type: "button", "aria-label": "下一页", disabled: current >= pages - 1, onClick: () => goPage(1), children: "›" }, "next"),
+        jsx("button", { type: "button", "aria-label": "下一页", "data-tooltip": "下一页", disabled: current >= pages - 1, onClick: () => goPage(1), children: "›" }, "next"),
       ] }) : null] }),
     ],
   }) });
+}
+
+function postBudget(body) {
+  return fetch(BASE + "/budget", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) }).then(function (r) {
+    return r.json().then(function (value) { if (!r.ok) throw new Error(value.message || value.error || "保存失败"); return value; });
+  });
+}
+function budgetLabel(info) {
+  if (!info) return "加载限额状态…";
+  var status = info.status;
+  var source = status.mode === "local" ? "本地" : "官方";
+  return status.blocked ? "已达到每日限额 · " + source : status.enabled ? "每日限额已启用 · " + source : "每日限额未启用";
+}
+function budgetConfigFromDraft(draft, mode) {
+  var config = { mode: mode === "local" ? "local" : "official" };
+  for (var key of ["tokens", "cny"]) {
+    var number = Number(draft[key]);
+    if (!Number.isFinite(number) || number < 0 || key === "tokens" && !Number.isSafeInteger(number)) {
+      throw new Error(key === "tokens" ? "Token 须为非负整数" : "消费须为非负金额");
+    }
+    config[key] = { enabled: number > 0, limit: number };
+  }
+  return config;
+}
+function budgetDraftValues(config) {
+  return {
+    tokens: config.tokens.enabled ? String(config.tokens.limit) : "",
+    cny: config.cny.enabled ? Number(config.cny.limit).toFixed(2) : "",
+  };
+}
+function createBudgetSaver(write, initial, mode) {
+  var saved = initial, queue = Promise.resolve();
+  var activeMode = mode === "local" ? "local" : initial && initial.mode === "local" ? "local" : "official";
+  return function (draft) {
+    var config = budgetConfigFromDraft(draft, activeMode);
+    var operation = queue.catch(function () {}).then(function () {
+      if (JSON.stringify(config) === JSON.stringify(saved)) return null;
+      return write({ config: config }).then(function (value) { saved = value.config; return value; });
+    });
+    queue = operation;
+    return operation;
+  };
+}
+
+function BudgetSettings(props) {
+  var [draft, setDraft] = useState(null), [info, setInfo] = useState(null), [edit, setEdit] = useState("");
+  var [error, setError] = useState("");
+  var latest = useRef(null), saver = useRef(null), revision = useRef(0), alive = useRef(true), loadSeq = useRef(0);
+  useEffect(function () {
+    alive.current = true;
+    var seq = ++loadSeq.current;
+    getJSON("/budget?light=1").then(function (value) {
+      if (!alive.current || seq !== loadSeq.current) return null;
+      var values = budgetDraftValues(value.config);
+      saver.current = createBudgetSaver(postBudget, value.config, props.mode); latest.current = values; setDraft(values); setInfo(value);
+      return getJSON("/budget").then(function (full) {
+        if (alive.current && seq === loadSeq.current) setInfo(full);
+      }).catch(function () {  });
+    }).catch(function () { if (alive.current) setError("加载失败，请重新打开设置"); });
+    return function () { alive.current = false; };
+  }, []);
+  function save(event) {
+    if (!latest.current || !info || !info.status.storageAvailable) return;
+    if (event && event.currentTarget.validity && !event.currentTarget.validity.valid) {
+      var cnyInput = event.currentTarget.getAttribute("step") === "0.01";
+      setError(cnyInput && event.currentTarget.validity.stepMismatch ? "消费上限最多两位小数" : "请输入有效的非负数");
+      return;
+    }
+    var id = ++revision.current;
+    ++loadSeq.current;
+    setError("");
+    var operation;
+    try { operation = saver.current(latest.current); }
+    catch (failure) { setError(failure.message); return; }
+    operation.then(function (value) {
+      if (!value) return;
+      var nextValues = budgetDraftValues(value.config);
+      if (alive.current && id === revision.current) { latest.current = nextValues; setDraft(nextValues); setInfo(value); }
+      props.onSaved(value);
+    }).catch(function (failure) {
+      if (alive.current && id === revision.current) setError("保存失败：" + failure.message);
+    });
+  }
+  var current = props.live || info;
+  var status = current && current.status;
+  var pending = !!(status && status.pending);
+  var limits = current && current.config;
+  var incomplete = !!(status && !pending && status.enabled && limits &&
+    ((limits.tokens.enabled && !status.tokenComplete) || (limits.cny.enabled && !status.costComplete)));
+  var usage = [];
+  if (status && !pending && status.enabled && limits) {
+    if (limits.tokens.enabled) usage.push("Token " + (status.tokens == null ? "—" : fmtK(status.tokens)) + " / " + fmtK(limits.tokens.limit));
+    if (limits.cny.enabled) usage.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)) + " / " + fmtMoney(limits.cny.limit));
+  }
+  var optimistic = false;
+  if (pending && props.today && draft) {
+    var cnyLimit = Number(draft.cny) || 0, tokenLimit = Number(draft.tokens) || 0;
+    if (cnyLimit > 0 && props.today.cost != null && props.today.cost >= cnyLimit) optimistic = true;
+    if (tokenLimit > 0 && props.today.tokens != null && props.today.tokens >= tokenLimit) optimistic = true;
+  }
+  if (optimistic && limits) {
+    if (limits.tokens.enabled && props.today.tokens != null) usage.push("Token " + fmtK(props.today.tokens) + " / " + fmtK(limits.tokens.limit));
+    if (limits.cny.enabled && props.today.cost != null) usage.push("消费 " + fmtMoney(props.today.cost) + " / " + fmtMoney(limits.cny.limit));
+  }
+  var blocked = !!(status && !pending && status.blocked) || optimistic;
+  var usageSource = status && status.mode === "official" ? "官方" : "本机";
+  return jsxs("div", { className: "d-budget-settings", children: [
+    draft ? [["tokens", "Token 上限", "Tokens"], ["cny", "消费上限", "CNY"]].map(function (item) {
+      var key = item[0], value = draft[key];
+      return jsxs("div", { className: "d-fx-row", children: [
+        jsx("span", { className: "d-fx-label", children: item[1] }),
+        edit === key ? jsx("input", { className: "d-fx-input", type: "number", min: "0", step: key === "tokens" ? "1" : "0.01", inputMode: key === "tokens" ? "numeric" : "decimal", autoFocus: true, "aria-label": "每日" + item[1], placeholder: "不限", disabled: !info.status.storageAvailable, value: value,
+          onChange: function (event) { var values = Object.assign({}, latest.current, { [key]: event.target.value }); latest.current = values; ++revision.current; setDraft(values); setError(""); },
+          onBlur: function (event) { setEdit(""); save(event); },
+          onKeyDown: function (event) { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } } }) :
+          jsx("button", { type: "button", className: "d-fx-btn", disabled: !info.status.storageAvailable, title: "点击修改" + item[1], onClick: function () { setEdit(key); }, children: value === "" ? "不限" : key === "tokens" ? fmtK(Number(value)) : fmtMoney(Number(value)) }),
+        jsx("span", { className: "d-fx-unit", children: item[2] }),
+      ] }, key);
+    }) : null,
+    jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
+      blocked
+        ? jsx("b", { children: "已达到每日限额，后续调用已熔断；次日 00:00 或提高限额后恢复" })
+        : jsx("span", { children: "达到上限熔断所有调用，按当前本地/官方模式计算。" + (incomplete ? " 统计不完整。" : "") }),
+    ] }),
+    error || (info && !info.status.storageAvailable) ? jsx("span", { className: "d-budget-inline-status" + (error ? " d-budget-warning" : ""), role: error ? "alert" : "status", title: error || (info ? budgetLabel(info) : ""), children: error || "宿主配置存储不可用" }) : null,
+  ] });
 }
 
 function TipCard(props) {
@@ -860,6 +1081,8 @@ function Dialog(props) {
   var selS = st(null); var sel = selS[0]; var setSel = selS[1];
   var openS = st(""); var open = openS[0]; var setOpen = openS[1];
   var dragS = st(""); var drag = dragS[0]; var setDrag = dragS[1];
+  var budgetS = st(null); var budgetInfo = budgetS[0]; var setBudgetInfo = budgetS[1];
+  var ratesErrorS = st(""); var ratesError = ratesErrorS[0]; var setRatesError = ratesErrorS[1];
 
   var themeS = st(readJSON("deepseekUsageTheme", { name: "blue" }).name || "blue"); var theme = themeS[0]; var setTheme = themeS[1];
 
@@ -874,8 +1097,8 @@ function Dialog(props) {
   var anchorS = st({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
   var anchor = anchorS[0]; var setAnchor = anchorS[1];
   var dimS = st("day"); var dim = dimS[0]; var setDim = dimS[1];
-  // 「各模型消费金额」两个维度：趋势（随时间，默认）/ 综合（所选区间按模型合计排行）。
-  var chartViewS = st("trend"); var chartView = chartViewS[0]; var setChartView = chartViewS[1];
+  // 与 Token 卡一致：排行在前并作为默认视图。
+  var chartViewS = st(readSourceMode() === "local" ? "agg" : "trend"); var chartView = chartViewS[0]; var setChartView = chartViewS[1];
   var detailS = st(null); var detail = detailS[0]; var setDetail = detailS[1];
   var tdS = st({ start: null, end: null, view: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 } });
   var td = tdS[0]; var setTd = tdS[1];
@@ -896,8 +1119,25 @@ function Dialog(props) {
   useEffect(function () { if (open) setTip(null); }, [open]);
   useEffect(function () { setTip(null); }, [page, dim, range, anchor.year, anchor.month]);
   var requestRef = useRef(0);
-  var todayRef = useRef(0);
+  var budgetRef = useRef(0);
+  var ratesSyncRef = useRef(0);
   var modeS = st(readSourceMode()); var mode = modeS[0]; var setMode = modeS[1];
+  useEffect(function () {
+    var id = ++budgetRef.current;
+    getJSON("/budget").then(function (value) {
+      if (id !== budgetRef.current) return null;
+      if (value.config.mode === mode) { setBudgetInfo(value); return null; }
+      return postBudget({ mode: mode }).then(function (next) {
+        if (id === budgetRef.current) setBudgetInfo(next);
+      });
+    }).catch(function () { if (id === budgetRef.current) setBudgetInfo(null); });
+  }, [mode]);
+  useEffect(function () {
+    function sync(event) { if (event.detail && event.detail.mode === mode && event.detail.key === todayKey(mode)) setToday(event.detail.value); }
+    window.addEventListener("deepseek-usage:today", sync);
+    return function () { window.removeEventListener("deepseek-usage:today", sync); };
+  }, [mode]);
+  useEffect(function () { setChartView(mode === "local" ? "agg" : "trend"); }, [mode]);
   var localAvailS = st(true); var localAvail = localAvailS[0]; var setLocalAvail = localAvailS[1];
 
   useEffect(function () { injectStyles(); }, []);
@@ -914,6 +1154,7 @@ function Dialog(props) {
   useEffect(function () {
     function esc(e) {
       if (e.key !== "Escape") return;
+      if (document.activeElement && document.activeElement.closest(".d-budget-settings")) document.activeElement.blur();
       if (detail) setDetail(null);
       else if (open) setOpen("");
       else onClose();
@@ -925,7 +1166,7 @@ function Dialog(props) {
     function down(e) {
       var t = e.target;
       if (!t || !t.closest) return;
-      if (open) { if (t.closest(".d-rate-dialog") || t.closest(".d-dialog-backdrop")) return; if (!t.closest("[data-pop]")) setOpen(""); return; }
+      if (open) { if (t.closest(".d-rate-dialog") || t.closest(".d-dialog-backdrop")) return; if (!t.closest("[data-pop]")) { if (document.activeElement && document.activeElement.closest(".d-budget-settings")) document.activeElement.blur(); setOpen(""); } return; }
       if (t.closest(".d-popup") || t.closest(".d-detail-dialog") || t.closest(".d-dialog-backdrop") || t.closest(".d-seat")) return;
       onClose();
     }
@@ -968,6 +1209,15 @@ function Dialog(props) {
         throw e;
       });
     }
+    if (!localMode && page !== "calendar") {
+      var sessionsQuery = range === "custom" && custom ? "from=" + custom.from + "&to=" + custom.to : "range=" + range;
+      var sessionsJob = getJSON("/local?" + sessionsQuery + "&tz=" + TZ + "&scope=all" + ratesParam())
+        .then(function (payload) { return (payload && payload.sessions) || []; })
+        .catch(function () { return []; });
+      job = Promise.all([job, sessionsJob]).then(function (pair) {
+        return Object.assign({}, pair[0], { sessions: pair[1] });
+      });
+    }
     if (page === "calendar") {
       var startMonth = dim === "month" ? 1 : dim === "week" ? (anchor.month <= 6 ? 1 : 7) : anchor.month;
       var endMonth = dim === "month" ? 12 : dim === "week" ? startMonth + 5 : anchor.month;
@@ -977,9 +1227,9 @@ function Dialog(props) {
     }
     return job.then(function (view) {
       if (requestRef.current !== id) return;
-      var result = { days: normalizeDays(view.days), balance: view.balance, granularity: view.granularity, local: view.local };
+      var result = { days: normalizeDays(view.days), balance: view.balance, granularity: view.granularity, local: view.local,
+        sessions: (view.local && view.local.sessions) || view.sessions || [] };
       if (page === "calendar") setCal(result); else setData(result);
-      if (page !== "calendar" && range === "today") setToday(total(result.days, null));
       setErr("");
     }).catch(function (e) {
       if (requestRef.current !== id) return;
@@ -991,11 +1241,8 @@ function Dialog(props) {
   }
 
   function loadToday(force) {
-    var id = ++todayRef.current;
-    var path = mode === "local" ? "/local?range=today&tz=" + TZ + "&scope=all" + ratesParam() : "/official?range=today&tz=" + TZ;
-    return getJSON(path + (force ? "&force=1" : "")).then(function (payload) {
-      if (todayRef.current === id) setToday(total(payload.points || payload.days || [], null));
-    }).catch(function () { if (todayRef.current === id) setToday(null); });
+    if (force) loadBudget();
+    return todayLoad(mode, !!force);
   }
 
   function saveSeat(next) {
@@ -1003,10 +1250,21 @@ function Dialog(props) {
     writeJSON(SEAT_KEY, next);
     try { window.dispatchEvent(new Event("deepseek-usage:seat")); } catch (e) {  }
   }
+  function acceptBudget(value) { ++budgetRef.current; setBudgetInfo(value); }
+  function loadBudget() {
+    var id = ++budgetRef.current;
+    getJSON("/budget").then(function (value) { if (id === budgetRef.current) setBudgetInfo(value); }).catch(function () { if (id === budgetRef.current) setBudgetInfo(null); });
+  }
+  function syncBudgetRates(rates) {
+    var id = ++ratesSyncRef.current;
+    ++budgetRef.current;
+    postBudget({ rates: rates }).then(function (value) { if (id === ratesSyncRef.current) { acceptBudget(value); setRatesError(""); } }).catch(function () { if (id === ratesSyncRef.current) setRatesError("费率已在本地保存，但未同步到宿主限额。请重试保存定价或限额。"); });
+  }
   function saveFx() {
     var n = Number(fxDraft);
     if (!isFinite(n) || n <= 0) { setFxDraft(String(fx)); setFxEdit(false); return; }
     writeJSON(RATES_KEY, { ...(readRates() || { schema: 2, models: {} }), schema: 2, usdToCny: n });
+    syncBudgetRates(readRates());
     setFx(n); setFxEdit(false); notifySource(); loadView(true); loadToday(true);
   }
   function patchSeat(key, patch) {
@@ -1123,7 +1381,7 @@ function Dialog(props) {
               jsx("button", {
                 className: "d-icon-btn",
                 type: "button",
-                "data-tooltip": "选择数据来源",
+                "data-tooltip": "切换官方账单与本地会话统计",
                 "aria-label": "切换数据来源",
                 "aria-expanded": open === "mode" ? "true" : "false",
                 onClick: function () { setOpen(open === "mode" ? "" : "mode"); },
@@ -1138,9 +1396,9 @@ function Dialog(props) {
           jsx("button", {
             className: "d-icon-btn" + (busy ? " d-spinning" : ""),
             type: "button",
-            "data-tooltip": "刷新数据",
+            "data-tooltip": "立即重新获取用量数据",
             "aria-label": "立即刷新",
-            onClick: function () { loadView(true); loadToday(true); },
+            onClick: function () { loadBudget(); loadView(true); loadToday(true); },
             children: svg(P.refresh, 16),
           }),
           jsxs("div", {
@@ -1151,7 +1409,7 @@ function Dialog(props) {
               jsx("button", {
                 className: "d-icon-btn d-settings-btn",
                 type: "button",
-                "data-tooltip": "显示设置",
+                "data-tooltip": "设置主题、状态栏、定价、每日限额与刷新",
                 "aria-label": "显示设置",
                 "aria-expanded": settingsOpen ? "true" : "false",
                 onClick: function () { setOpen(settingsOpen ? "" : "settings:appearance"); },
@@ -1162,7 +1420,7 @@ function Dialog(props) {
                 role: "dialog",
                 "aria-label": "显示设置",
                 children: [
-                  jsxs("div", { className: "d-settings-nav", children: [["appearance", "外观"], ["seat", "侧边栏标签"], ["pricing", "定价"], ["refresh", "自动刷新"]].map(function (i) { return jsx("button", { type: "button", className: "d-settings-nav-item", onClick: function () { setOpen("settings:" + i[0]); }, children: i[1] }, i[0]); }) }),
+                  jsxs("div", { className: "d-settings-nav", children: [["appearance", "外观"], ["seat", "侧边栏标签"], ["pricing", "定价"], ["budget", "每日限额"], ["refresh", "自动刷新"]].map(function (i) { return jsx("button", { type: "button", className: "d-settings-nav-item", "data-setting": i[0], "aria-current": (open === "settings:" + i[0] || i[0] === "seat" && open.indexOf("seaticon:") === 0) ? "page" : undefined, onClick: function () { setOpen("settings:" + i[0]); }, children: i[1] }, i[0]); }) }),
                    jsxs("div", { className: "d-settings-group d-settings-appearance", children: [
                     jsx("span", { className: "d-settings-label", children: "主题颜色" }),
                     jsx("div", { className: "d-theme-swatches", role: "radiogroup", "aria-label": "选择主题色", children: [
@@ -1186,7 +1444,14 @@ function Dialog(props) {
                     }) }),
                   ] }),
                   jsxs("div", { className: "d-settings-group", children: [
-                    jsxs("span", { className: "d-settings-label", children: "侧边栏标签" }),
+                    jsxs("div", { className: "d-seat-pref-heading", children: [
+                      jsx("span", { className: "d-settings-label", children: "侧边栏标签" }),
+                      jsxs("span", { className: "d-help-hint", children: [
+                        jsx("button", { type: "button", className: "d-help-mark", "aria-label": "侧边栏标签自定义说明", "aria-describedby": "d-seat-custom-help", children: "*" }),
+                        jsx("span", { id: "d-seat-custom-help", role: "tooltip", className: "d-help-content", children: "支持更换内置图标或上传图片，也可修改标签、开关指标、拖动排序。图片建议 64×64，最大 200KB。" }),
+                      ] }),
+                    ] }),
+                    jsx("small", { className: "d-seat-pref-note", children: "点击图标可更换或上传图片" }),
                     jsx("div", { className: "d-display-pref-list", children: seatOrder(seat).map(function (key) {
                       return { tokens: ["tokens", "Tokens", "Token 数"], requests: ["requests", "API 请求次数", "请求数"], spend: ["spend", "消费金额", "消费"] }[key];
                     }).map(function (row) {
@@ -1204,6 +1469,7 @@ function Dialog(props) {
                             tabIndex: 0,
                             "aria-label": "拖动排序" + row[1],
                             title: "拖动排序；聚焦后可用 ↑ ↓",
+                            "data-tooltip": "拖动排序，键盘可用 ↑ ↓",
                             onDragStart: function (e) { setDrag(key); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); },
                             onDragEnd: function () { setDrag(""); },
                             onKeyDown: function (e) { if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); moveSeat(key, e.key === "ArrowUp" ? -1 : 1); } },
@@ -1214,7 +1480,8 @@ function Dialog(props) {
                                 type: "button",
                                 "aria-label": "更换" + row[1] + "图标",
                                 "aria-expanded": open === "seaticon:" + key ? "true" : "false",
-                                title: "更换图标 / 上传",
+                                title: "更换内置图标或上传自定义图片",
+                                "data-tooltip": "更换图标或上传图片",
                                 onClick: function () { setOpen(open === "seaticon:" + key ? "" : "seaticon:" + key); },
                                 children: jsx("span", { className: "d-pref-glyph", "data-metric-icon": key, children: seatGlyph(m, 16) || "无" }),
                               }),
@@ -1241,7 +1508,7 @@ function Dialog(props) {
                               type: "button",
                               className: "d-icon-choice",
                               "aria-pressed": !m.icon && !m.img ? "true" : "false",
-                              title: "不显示图标",
+                              title: "不显示图标", "data-tooltip": "隐藏此指标的图标",
                               "aria-label": "不显示图标",
                               style: { fontSize: 12 },
                               onClick: function () { patchSeat(key, { icon: "", img: "" }); setOpen("settings:seat"); },
@@ -1250,7 +1517,7 @@ function Dialog(props) {
                               type: "button",
                               className: "d-icon-choice",
                               "aria-pressed": m.icon === defaultSeat[key].icon && !m.img ? "true" : "false",
-                              title: "使用默认图标",
+                              title: "使用默认图标", "data-tooltip": "恢复此指标的默认图标",
                               "aria-label": "使用默认图标",
                               style: { fontSize: 12 },
                               onClick: function () { patchSeat(key, { icon: defaultSeat[key].icon, img: "" }); setOpen("settings:seat"); },
@@ -1261,6 +1528,7 @@ function Dialog(props) {
                                 className: "d-icon-choice",
                                 "aria-pressed": m.icon === name && !m.img ? "true" : "false",
                                 title: ICON_LABELS[name],
+                                "data-tooltip": "使用「" + ICON_LABELS[name] + "」图标",
                                 "aria-label": ICON_LABELS[name],
                                 onClick: function () { patchSeat(key, { icon: name, img: "" }); setOpen("settings:seat"); },
                                 children: icon(name, 16),
@@ -1272,7 +1540,7 @@ function Dialog(props) {
                               }, "hint"),
                               jsx("label", {
                                 className: "d-icon-choice d-icon-upload",
-                                title: "上传自定义图标",
+                                title: "上传自定义图标", "data-tooltip": "上传 PNG、JPG 或 SVG，最大 200KB",
                                 style: { cursor: "pointer", fontSize: 11 },
                                 children: ["上传", jsx("input", {
                                   type: "file",
@@ -1284,7 +1552,7 @@ function Dialog(props) {
                               m.img ? jsx("button", {
                                 type: "button",
                                 className: "d-icon-choice",
-                                title: "清除自定义图标",
+                                title: "清除自定义图标", "aria-label": "清除自定义图标", "data-tooltip": "移除已上传的自定义图片",
                                 onClick: function () { patchSeat(key, { img: "" }); setOpen("settings:seat"); },
                                 children: "×",
                               }, "clear") : null,
@@ -1302,11 +1570,11 @@ function Dialog(props) {
                       jsx("span", { className: "d-fx-label", children: "1 USD =" }),
                       fxEdit ? jsx("input", {
                         className: "d-fx-input", type: "number", min: "0.01", step: "0.01", autoFocus: true,
-                        value: fxDraft, "aria-label": "USD 兑 CNY 汇率",
+                        value: fxDraft, "aria-label": "USD 兑 CNY 汇率", title: "输入汇率，按 Enter 或移开焦点保存",
                         onChange: function (e) { setFxDraft(e.target.value); },
                         onBlur: saveFx,
                          onKeyDown: function(e){if(e.key==="Enter")e.currentTarget.blur();},
-                      }) : jsx("button", { type: "button", className: "d-fx-btn", onClick: function () { setFxDraft(String(fx)); setFxEdit(true); }, title: "点击修改汇率", children: fx }),
+                      }) : jsx("button", { type: "button", className: "d-fx-btn", onClick: function () { setFxDraft(String(fx)); setFxEdit(true); }, title: "点击修改 USD 兑 CNY 汇率", "data-tooltip": "点击修改汇率，按 Enter 或移开焦点保存", children: fx }),
                        jsx("span", { className: "d-fx-unit", children: "CNY" }),
                       null,
                       null,
@@ -1341,6 +1609,10 @@ function Dialog(props) {
                       }),
                     ] }),
                   ] }),
+                  jsxs("div", { className: "d-settings-group d-settings-budget", children: [
+                    jsx("div", { className: "d-fx-heading d-settings-pricing", children: jsx("span", { className: "d-settings-label", children: "每日限额" }) }),
+                    open === "settings:budget" ? jsx(BudgetSettings, { onSaved: acceptBudget, live: budgetInfo, mode: mode, today: today }) : null,
+                  ] }),
                 ],
               }) : null,
             ],
@@ -1349,7 +1621,7 @@ function Dialog(props) {
             className: "d-icon-btn",
             type: "button",
             "aria-label": "关闭",
-            "data-tooltip": "关闭",
+            "data-tooltip": "关闭用量面板",
             onClick: onClose,
             children: svg(P.close, 16),
           }),
@@ -1412,7 +1684,7 @@ function Dialog(props) {
           sel === null ? null : jsx("button", {
             className: "d-model-reset",
             type: "button",
-            "aria-label": "恢复全部模型",
+            "aria-label": "恢复全部模型", "data-tooltip": "恢复全部模型",
             title: "恢复全部模型",
             onClick: function () { setSel(null); },
             children: svg(P.close, 12),
@@ -1520,7 +1792,7 @@ function Dialog(props) {
                 jsx("button", {
                   className: "d-icon-btn",
                   type: "button",
-                  "aria-label": "上一月",
+                  "aria-label": "上一月", "data-tooltip": "上一月",
                   onClick: function () { setTd(function (p) { return { start: p.start, end: p.end, custom: p.custom, view: { year: p.view.month === 1 ? p.view.year - 1 : p.view.year, month: p.view.month === 1 ? 12 : p.view.month - 1 } }; }); },
                   children: svg(P.left, 14),
                 }),
@@ -1528,7 +1800,7 @@ function Dialog(props) {
                 jsx("button", {
                   className: "d-icon-btn",
                   type: "button",
-                  "aria-label": "下一月",
+                  "aria-label": "下一月", "data-tooltip": "下一月",
                   onClick: function () { setTd(function (p) { return { start: p.start, end: p.end, custom: p.custom, view: { year: p.view.month === 12 ? p.view.year + 1 : p.view.year, month: p.view.month === 12 ? 1 : p.view.month + 1 } }; }); },
                   children: svg(P.right, 14),
                 }),
@@ -1581,46 +1853,54 @@ function Dialog(props) {
   });
 
   var moneyOf = mode === "local" ? function (m) { return localMoney(m, fxNow); } : function (m) { return fmtMoney(m.cost); };
+  var budgetIncomplete = !!(budgetInfo && budgetInfo.status.enabled && (
+    (budgetInfo.config.tokens.enabled && !budgetInfo.status.tokenComplete) ||
+    (budgetInfo.config.cny.enabled && !budgetInfo.status.costComplete)));
 
   var detailPage = jsxs("div", {
     className: "d-page-detail",
     children: [
       jsxs("div", { className: "d-dashboard-head", children: [tdBtn] }),
+      budgetInfo && budgetInfo.status.enabled ? jsxs("div", { className: "d-budget-banner" + (budgetInfo.status.blocked ? " d-budget-banner-blocked" : ""), role: budgetInfo.status.blocked ? "alert" : "status", children: [jsx("span", { children: budgetLabel(budgetInfo) + (budgetIncomplete ? " · ⚠ 统计不完整" : "") }), jsx("button", { type: "button", className: "d-settings-link", onClick: function () { setOpen("settings:budget"); }, children: "管理限额" })] }) : null,
+      ratesError ? jsx("p", { role: "alert", className: "d-budget-warning", children: ratesError }) : null,
       metricCards(sums, mode === "local" ? "本地用量合计" : "官方账单合计"),
+      jsx(TokenUsageCard, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip, official: mode !== "local", officialTokens: mode === "local" ? null : sums.tokens, sessions: data && data.sessions, fx: fxNow }),
       jsxs("section", { className: "d-chart-section", "aria-label": "各模型消费金额", children: [
         jsxs("div", { className: "d-chart-heading", children: [
           jsxs("h2", { children: [icon(CARD_ICONS.spend, 16), jsx("span", { children: "各模型消费金额" })] }),
           jsxs("div", { className: "d-chart-view-switch", role: "group", "aria-label": "切换图表维度", children: [
             jsxs("button", {
               type: "button",
-              className: "d-view-toggle" + (chartView === "trend" ? " d-is-active" : ""),
-              title: "趋势：随时间变化的消费金额（当天按小时、跨天按天）",
-              "aria-pressed": chartView === "trend",
-              onClick: function () { setChartView("trend"); },
-              children: [svg(VIEW_ICONS.trend, 13), jsx("span", { children: "趋势" })],
+              className: "d-view-toggle" + (chartView === "agg" ? " d-is-active" : ""),
+              title: "模型排行：按所选区间内各模型消费金额合计排序",
+              "data-tooltip": "比较当前筛选范围内各模型的费用合计",
+              "aria-pressed": chartView === "agg",
+              onClick: function () { setChartView("agg"); },
+              children: [svg(VIEW_ICONS.rank, 13), jsx("span", { children: "模型排行" })],
             }),
             jsxs("button", {
               type: "button",
-              className: "d-view-toggle" + (chartView === "agg" ? " d-is-active" : ""),
-              title: "综合：所选区间内各模型消费金额合计排行",
-              "aria-pressed": chartView === "agg",
-              onClick: function () { setChartView("agg"); },
-              children: [svg(VIEW_ICONS.rank, 13), jsx("span", { children: "综合" })],
+              className: "d-view-toggle" + (chartView === "trend" ? " d-is-active" : ""),
+              title: "费用走势：按时间查看各模型消费金额（当天按小时、跨天按天）",
+              "data-tooltip": "按时间查看费用变化，当天按小时、跨天按天",
+              "aria-pressed": chartView === "trend",
+              onClick: function () { setChartView("trend"); },
+              children: [svg(VIEW_ICONS.trend, 13), jsx("span", { children: "费用走势" })],
             }),
           ] }),
         ] }),
         chartView === "agg"
-          ? jsx(ModelCostRanking, { models: cm, sel: sel, money: moneyOf, onTip: showTip })
-          : jsx(StackedChart, { days: days, models: cm, sel: sel, hourly: hourly, onTip: showTip, metric: "cost" }),
+          ? jsx(UsageRanking, { models: cm, sel: sel, money: moneyOf, onTip: showTip })
+          : jsxs("div", { children: [
+            jsx("div", { className: "d-mini-total d-cost-total", children: moneyOf(sums) + " CNY" }),
+            jsx(StackedChart, { days: days, models: cm, sel: sel, hourly: hourly, onTip: showTip, metric: "cost" }),
+          ] }),
         chartView === "agg" ? null : jsx("div", { className: "d-model-legend", "aria-label": "消费金额模型图例", children: cm.filter(function (m) { return sel === null || sel.indexOf(m.model) >= 0; }).map(function (m, i) {
           return jsx("span", { className: "d-model-legend-item", title: m.model, children: [jsx("i", { style: { background: AI[i % AI.length] } }), jsx("span", { children: m.model })] }, m.model);
         }) }),
-        jsx("div", { className: "d-legend d-legend-end", style: { justifyContent: "flex-end" }, children: jsx("span", { className: "d-chart-total", children: moneyOf(sums) + " CNY" }) }),
+        chartView === "agg" ? jsx("div", { className: "d-legend d-legend-end", style: { justifyContent: "flex-end" }, children: jsx("span", { className: "d-chart-total", children: moneyOf(sums) + " CNY" }) }) : null,
       ] }),
-      jsxs("div", { className: "d-mini-chart-grid", children: [
-        jsx(MiniRequests, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip }),
-        jsx(MiniTokens, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip }),
-      ] }),
+      jsx("div", { className: "d-mini-chart-grid", children: jsx(MiniRequests, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip }) }),
     ],
   });
 
@@ -1798,7 +2078,7 @@ function Dialog(props) {
             jsx("button", {
               className: "d-icon-btn",
               type: "button",
-              "aria-label": "上一月",
+              "aria-label": "上一月", "data-tooltip": "上一月",
               onClick: function () { setAnchor(anchor.month === 1 ? { year: anchor.year - 1, month: 12 } : { year: anchor.year, month: anchor.month - 1 }); },
               children: svg(P.left, 14),
             }),
@@ -1806,7 +2086,7 @@ function Dialog(props) {
             jsx("button", {
               className: "d-icon-btn",
               type: "button",
-              "aria-label": "下一月",
+              "aria-label": "下一月", "data-tooltip": "下一月",
               onClick: function () { setAnchor(anchor.month === 12 ? { year: anchor.year + 1, month: 1 } : { year: anchor.year, month: anchor.month + 1 }); },
               children: svg(P.right, 14),
             }),
@@ -1858,7 +2138,7 @@ function Dialog(props) {
       ["输入（命中缓存）", fmtInt(detail.day.hit)],
       ["输入（未命中缓存）", fmtInt(detail.day.miss)],
       ["输出", fmtInt(detail.day.output)],
-      ["Token 合计", fmtInt(detail.day.tokens || (detail.day.hit || 0) + (detail.day.miss || 0) + (detail.day.cacheWrite || 0) + (detail.day.output || 0))]
+      ["Token 合计", fmtK(detail.day.tokens || (detail.day.hit || 0) + (detail.day.miss || 0) + (detail.day.cacheWrite || 0) + (detail.day.output || 0))]
     );
   }
 
@@ -1887,6 +2167,7 @@ function Dialog(props) {
         onClose: function () { setOpen("settings:pricing"); },
         onSave: function (rates, stay) {
           writeJSON(RATES_KEY, rates);
+          syncBudgetRates(rates);
           if (rates && Number(rates.usdToCny) > 0) setFx(Number(rates.usdToCny));
           if (!stay) setOpen("");
           notifySource();
@@ -1909,7 +2190,7 @@ function Dialog(props) {
                 jsx("p", { className: "d-section-kicker", children: detail.eyebrow }),
                 jsx("h2", { children: detail.title }),
               ] }),
-              jsx("button", { className: "d-icon-btn", type: "button", "aria-label": "关闭详情", onClick: function () { setDetail(null); }, children: svg(P.close, 16) }),
+              jsx("button", { className: "d-icon-btn", type: "button", "aria-label": "关闭详情", "data-tooltip": "关闭详情", onClick: function () { setDetail(null); }, children: svg(P.close, 16) }),
             ] }),
             jsx("ul", { className: "d-detail-list", children: detailRows.map(function (row) {
               return jsxs("li", { children: [jsx("span", { children: row[0] }), jsx("span", { children: row[1] })] }, row[0]);
@@ -1938,7 +2219,6 @@ function DeepSeekUsageSeat(props) {
   var todayS = useState(null);
   var today = todayS[0];
   var setToday = todayS[1];
-  var lastGoodS = useRef(null);
   var revisionS = useState(0); var revision = revisionS[0];
   var wide = props.wide !== false;
   useEffect(function () { injectStyles(); }, []);
@@ -1955,29 +2235,20 @@ function DeepSeekUsageSeat(props) {
   useEffect(function () {
     var alive = true;
     setToday(null);
-    lastGoodS.current = null;
-    function pull() {
-      var path = mode === "local"
-        ? "/local?range=today&tz=" + TZ + "&scope=all" + ratesParam()
-        : "/official?range=today&tz=" + TZ;
-      getJSON(path).then(function (payload) {
-        if (!alive) return;
-        var rows = (payload.points && payload.points.length ? payload.points : payload.days) || [];
-        var t = total(rows, null);
-        var date = rows.length ? rows[rows.length - 1].date : "";
-        var good = t.tokens || t.requests || t.cost;
-        var prev = lastGoodS.current;
-        if (good) lastGoodS.current = { t: t, date: date };
-        if (good || !prev || !date || prev.date === date) setToday(good ? t : (prev ? prev.t : t));
-        else { lastGoodS.current = { t: t, date: date }; setToday(t); }
-      }).catch(function () { if (alive && !lastGoodS.current) setToday(null); });
-    }
-    pull();
-    var timer = window.setInterval(pull, 120000);
-    function wake() { if (!document.hidden) pull(); }
+    function sync(event) { if (alive && event.detail && event.detail.mode === mode && event.detail.key === todayKey(mode)) setToday(event.detail.value); }
+    window.addEventListener("deepseek-usage:today", sync);
+    todayLoad(mode, false);
+    var timer = window.setInterval(function () { todayLoad(mode, false); }, 120000);
+    function wake() { if (!document.hidden) todayLoad(mode, false); }
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
-    return function () { alive = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", wake); window.removeEventListener("focus", wake); };
+    return function () {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("deepseek-usage:today", sync);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
   }, [mode, revision]);
   var order = seatOrder(cfg);
   var enabled = order.filter(function (k) { return cfg[k] && cfg[k].on; });

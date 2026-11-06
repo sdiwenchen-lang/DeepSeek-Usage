@@ -105,10 +105,15 @@ function sampleOf(event) {
       usage: event.data.chunk.usage,
     };
   }
-  if (event?.type === "assistant/message" && event.data?.usage !== undefined) {
+  if (event?.type === "assistant/message" || event?.type === "assistant/attempt") {
+    const stream = event.data?.stream ?? [];
+    const sample = stream.filter((record) => record.type === "chunk" && record.chunk?.type === "usage").at(-1);
+    const usage = event.data?.usage ?? sample?.chunk?.usage;
+    if (usage === undefined) return undefined;
     return {
-      key: stepKey(event),
-      usage: event.data.usage,
+      // A failed attempt and its retry are separate billable requests within the same step.
+      key: event.type === "assistant/attempt" ? `attempt:${event.seq}` : stepKey(event),
+      usage,
     };
   }
   return undefined;
@@ -185,7 +190,7 @@ function removeRoute(hours, hour, key, buckets) {
  * 折叠一个会话的完整事件列表。
  *
  * @param {Array<object>} events 持久化的 SessionEvent 列表（seq 顺序）
- * @param {{ tz?: number, now?: number }} [options]
+ * @param {{ tz?: number, now?: number, inheritedEventCount?: number }} [options]
  *   折叠只保存四个 token 桶；费率与汇率在查询时应用。
  * @returns {{
  *   hours: Map<string, Map<string, object>>,
@@ -199,6 +204,9 @@ export function foldSession(events, options = {}) {
   const tz = options.tz ?? 0;
   const now = options.now ?? Date.now();
   const hours = new Map();
+  const inheritedEventCount = options.inheritedEventCount ?? 0;
+  let title = "";
+  const missingUsageHours = {};
   let last = null;
   let route = null;
   let firstAt = null;
@@ -206,14 +214,26 @@ export function foldSession(events, options = {}) {
   let unattributed = 0;
 
   for (const event of events ?? []) {
+    if (event?.type === "session/title" && typeof event.data?.title === "string") {
+      title = event.data.title.trim().slice(0, 200);
+      continue;
+    }
     if (event?.type === "request/header") {
       const provenance = provenanceOf(event);
       if (provenance !== undefined) route = provenance;
       continue;
     }
 
+    // Forks inherit context, but the inherited requests were charged to their original session.
+    if (event?.seq < inheritedEventCount) continue;
     const sample = sampleOf(event);
-    if (sample === undefined) continue;
+    if (sample === undefined) {
+      if (event?.type === "assistant/message" && last?.key !== stepKey(event)) {
+        const hour = hourKey(Number.isFinite(event.time) ? event.time : now, tz);
+        missingUsageHours[hour] = (missingUsageHours[hour] ?? 0) + 1;
+      }
+      continue;
+    }
 
     const provenance = provenanceOf(event) ?? route;
     const provider = provenance?.provider ?? UNKNOWN;
@@ -245,5 +265,5 @@ export function foldSession(events, options = {}) {
     for (const buckets of routes.values()) samples += buckets.requests;
   }
 
-  return { hours, samples, firstAt, lastAt, unattributed };
+  return { hours, samples, firstAt, lastAt, unattributed, title, missingUsageHours };
 }

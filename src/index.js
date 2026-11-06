@@ -20,9 +20,11 @@
 
 import { createAccountSource } from "./account.js";
 import { createApiClient } from "./apiclient.js";
+import { createBudget, createBudgetStore } from "./budget.js";
 import { createCache } from "./cache.js";
 import { BASE_PATH, registerRoutes } from "./http.js";
 import { createLocalSource } from "./local.js";
+import { createOfficialUsage } from "./official-usage.js";
 
 export const name = "deepseek-usage";
 
@@ -30,7 +32,7 @@ export const name = "deepseek-usage";
 export const inject = ["credentials"];
 
 /** 可选服务：webServer / httpServer（在其中之一就绪时注册端点）/ commands / 本地会话日志。 */
-export const optional = ["webServer", "httpServer", "commands", "sessionPersistence"];
+export const optional = ["webServer", "httpServer", "commands", "sessionPersistence", "configEditor"];
 
 /**
  * 可配置项（对齐 cordis.patch.yml）。
@@ -65,8 +67,13 @@ export function apply(ctx, config = {}) {
     config: config.local ?? {},
   });
 
+  const officialUsage = createOfficialUsage({ account, api, cache, logger });
+  const budget = createBudget({ local, official: officialUsage, initial: config.budget ?? {}, store: createBudgetStore(ctx), logger });
+  budget.register(ctx);
+
   // 2. 注册回环端点
   registerRoutes(ctx, {
+    budget,
     account,
     api,
     cache,
