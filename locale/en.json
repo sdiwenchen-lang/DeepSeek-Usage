@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "DeepSeek Usage",
-    "description": "A DeepSeek usage panel for DSH with official account balance and billing, a daily usage calendar, and local usage estimates across all providers using editable per-model rates. Track tokens and estimated costs by session, customize sidebar status labels and icons, and stop subsequent model calls across sessions when daily token or CNY limits are reached."
+    "description": "A DeepSeek usage and budget panel for DSH: official mode reads the host account's balance, billing, daily usage, and spend, while local mode reads session logs from every provider and estimates tokens, costs, and API calls with editable per-model rates. Includes usage calendars, trends, model and session rankings, and official-versus-local reconciliation. Switch themes and customize sidebar Token, spend, and API metrics by enabling, renaming, changing icons, and reordering them. Set daily Token or CNY limits to circuit-break all subsequent model calls when reached, show a red warning in the status bar, and return the failure reason in the affected conversation; limits reset at Beijing midnight. The header and sidebar share one today-usage snapshot for consistent data."
   }
 }
