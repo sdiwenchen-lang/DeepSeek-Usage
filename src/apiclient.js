@@ -61,7 +61,7 @@ export const TOKEN_HEADER = "x-dsh-auth-token";
  *
  * @param {object} opts
  * @param {string} [opts.xAppVersion]      — 注入 x-app-version 头
- * @param {number} [opts.timeoutMs=10000]  — 单请求超时
+ * @param {number} [opts.timeoutMs=10000]  — 整次请求总时限（含重试、等待和正文解析）
  * @param {number[]} [opts.backoffMs]      — 429/5xx 指数退避序列
  * @param {typeof fetch} [opts.fetch]      — 可注入的 fetch（测试用）
  * @param {(s: string) => void} [opts.log] — 日志
@@ -77,15 +77,22 @@ export function createApiClient(opts = {}) {
     throw new Error("apiclient: global fetch is unavailable and no fetch was injected");
   }
 
-  /**
-   * 内部请求，带超时与重试。
-   * 401 不重试，抛 UpstreamAuthError；其他 4xx 不重试，抛 UpstreamError。
-   */
-  async function request(path, token, init = {}) {
-    const url = UPSTREAM_BASE + path;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const pending = new Set();
+  let disposed = false;
 
+  /** Abort current work and reject later requests without contacting upstream. */
+  function dispose() {
+    disposed = true;
+    for (const controller of pending) controller.abort(new DOMException("API client disposed", "AbortError"));
+  }
+
+  /** One deadline covers retries, backoff, and consuming the response body. */
+  async function request(path, token) {
+    if (disposed) throw new DOMException("API client disposed", "AbortError");
+    const controller = new AbortController();
+    const { signal } = controller;
+    pending.add(controller);
+    const timer = setTimeout(() => controller.abort(new DOMException("Upstream request timed out", "TimeoutError")), timeoutMs);
     const headers = {
       "User-Agent": BROWSER_UA,
       "x-app-version": xAppVersion,
@@ -93,31 +100,31 @@ export function createApiClient(opts = {}) {
       "origin": UPSTREAM_BASE,
       "referer": UPSTREAM_BASE + "/",
       [TOKEN_HEADER]: token,
-      ...(init.headers ?? {}),
     };
 
+    let res;
     try {
-      let res = await doFetch(url, { ...init, headers, signal: controller.signal });
-
-      // 429 / 5xx 指数退避，上限 backoffMs.length 次
-      let attempt = 0;
-      while ((res.status === 429 || res.status >= 500) && attempt < backoffMs.length) {
-        log(`retry ${res.status} on ${path} (attempt ${attempt + 1})`);
-        await sleep(backoffMs[attempt]);
-        attempt++;
-        res = await doFetch(url, { ...init, headers, signal: controller.signal });
+      for (let attempt = 0; ; attempt++) {
+        res = await withAbort(signal, () => doFetch(UPSTREAM_BASE + path, { headers, signal }));
+        if ((res.status === 429 || res.status >= 500) && attempt < backoffMs.length) {
+          log(`retry ${res.status} on ${path} (attempt ${attempt + 1})`);
+          await withAbort(signal, () => releaseResponse(res));
+          res = undefined;
+          await sleep(backoffMs[attempt], signal);
+          continue;
+        }
+        if (res.status === 401) throw new UpstreamAuthError("upstream returned 401");
+        if (!res.ok) {
+          const body = await withAbort(signal, () => safeText(res));
+          throw new UpstreamError(`upstream ${res.status} on ${path}`, res.status, body);
+        }
+        return await withAbort(signal, () => payload(res, path));
       }
-
-      if (res.status === 401) {
-        throw new UpstreamAuthError("upstream returned 401");
-      }
-      if (!res.ok) {
-        const body = await safeText(res);
-        throw new UpstreamError(`upstream ${res.status} on ${path}`, res.status, body);
-      }
-      return res;
     } finally {
       clearTimeout(timer);
+      pending.delete(controller);
+      // Do not wait for a stalled stream to acknowledge cancellation.
+      void releaseResponse(res);
     }
   }
 
@@ -145,22 +152,19 @@ export function createApiClient(opts = {}) {
 
   /** 余额 + 累计消费。 */
   async function fetchSummary(token) {
-    const res = await request(ENDPOINTS.SUMMARY, token);
-    return normalizeUser(await payload(res, ENDPOINTS.SUMMARY));
+    return normalizeUser(await request(ENDPOINTS.SUMMARY, token));
   }
 
   /** 用量明细：按日期 × 模型返回 token 三段 + 请求数。 */
   async function fetchUsageAmount(token, { year, month }) {
     const qs = `?month=${month}&year=${year}`;
-    const res = await request(ENDPOINTS.USAGE_AMOUNT + qs, token);
-    return normalizeUsageRows(await payload(res, ENDPOINTS.USAGE_AMOUNT));
+    return normalizeUsageRows(await request(ENDPOINTS.USAGE_AMOUNT + qs, token));
   }
 
   /** 费用明细：按日期 × 模型返回费用。 */
   async function fetchUsageCost(token, { year, month }) {
     const qs = `?month=${month}&year=${year}`;
-    const res = await request(ENDPOINTS.USAGE_COST + qs, token);
-    return normalizeCostRows(await payload(res, ENDPOINTS.USAGE_COST));
+    return normalizeCostRows(await request(ENDPOINTS.USAGE_COST + qs, token));
   }
 
   /**
@@ -169,18 +173,16 @@ export function createApiClient(opts = {}) {
    */
   async function fetchRangeAmount(token, { start, end, tz }) {
     const qs = `?start=${start}&end=${end}&tz=${tz}`;
-    const res = await request(ENDPOINTS.RANGE_AMOUNT + qs, token);
-    return normalizeRangeAmount(await payload(res, ENDPOINTS.RANGE_AMOUNT));
+    return normalizeRangeAmount(await request(ENDPOINTS.RANGE_AMOUNT + qs, token));
   }
 
   /** 任意时间窗的费用，形状与 fetchRangeAmount 对齐。 */
   async function fetchRangeCost(token, { start, end, tz }) {
     const qs = `?start=${start}&end=${end}&tz=${tz}`;
-    const res = await request(ENDPOINTS.RANGE_COST + qs, token);
-    return normalizeRangeCost(await payload(res, ENDPOINTS.RANGE_COST));
+    return normalizeRangeCost(await request(ENDPOINTS.RANGE_COST + qs, token));
   }
 
-  return { fetchSummary, fetchUsageAmount, fetchUsageCost, fetchRangeAmount, fetchRangeCost };
+  return { fetchSummary, fetchUsageAmount, fetchUsageCost, fetchRangeAmount, fetchRangeCost, dispose };
 }
 
 /* ---------------- 响应规范化（纯函数，便于单测） ---------------- */
@@ -297,18 +299,20 @@ function flattenUsage(data) {
  * @returns {{bucket: number, rows: Array<object>}}
  */
 export function normalizeRangeAmount(data) {
-  const bucket = num(data?.bucket);
+  const bucket = rangeBucket(data);
   const rows = [];
-  for (const series of Array.isArray(data?.series) ? data.series : []) {
-    for (const item of Array.isArray(series?.buckets) ? series.buckets : []) {
-      const usage = item?.usage ?? {};
+  for (const series of rangeArray(data.series)) {
+    const model = rangeModel(series);
+    for (const item of rangeArray(series.buckets)) {
+      if (!record(item) || !record(item.usage)) invalidRange();
+      const usage = item.usage;
+      if (usage.PROMPT_TOKEN !== undefined) rangeNumber(usage.PROMPT_TOKEN);
       rows.push({
-        ts: num(item?.time),
-        model: String(series?.model ?? "unknown"),
-        hit: num(usage.PROMPT_CACHE_HIT_TOKEN),
-        miss: num(usage.PROMPT_CACHE_MISS_TOKEN),
-        output: num(usage.RESPONSE_TOKEN),
-        requests: num(usage.REQUEST),
+        ts: rangeTime(item.time), model,
+        hit: rangeNumber(usage.PROMPT_CACHE_HIT_TOKEN),
+        miss: rangeNumber(usage.PROMPT_CACHE_MISS_TOKEN),
+        output: rangeNumber(usage.RESPONSE_TOKEN),
+        requests: rangeNumber(usage.REQUEST),
       });
     }
   }
@@ -321,17 +325,54 @@ export function normalizeRangeAmount(data) {
  * 多币种时只取 CNY（面板按人民币展示）。
  */
 export function normalizeRangeCost(data) {
-  const bucket = num(data?.bucket);
+  const bucket = rangeBucket(data);
   const rows = [];
-  for (const currency of Array.isArray(data?.data) ? data.data : []) {
-    if (currency?.currency && currency.currency !== "CNY") continue;
-    for (const series of Array.isArray(currency?.series) ? currency.series : []) {
-      for (const item of Array.isArray(series?.buckets) ? series.buckets : []) {
-        rows.push({ ts: num(item?.time), model: String(series?.model ?? "unknown"), cost: num(item?.cost) });
+  for (const currency of rangeArray(data.data)) {
+    if (!record(currency) || typeof currency.currency !== "string" || !/^[A-Z]{3}$/.test(currency.currency)) invalidRange();
+    for (const series of rangeArray(currency.series)) {
+      const model = rangeModel(series);
+      for (const item of rangeArray(series.buckets)) {
+        if (!record(item)) invalidRange();
+        const row = { ts: rangeTime(item.time), model, cost: rangeNumber(item.cost) };
+        if (currency.currency === "CNY") rows.push(row);
       }
     }
   }
   return { bucket, rows };
+}
+
+function invalidRange() {
+  throw Object.assign(new UpstreamError("Invalid upstream range response", 502), { code: "invalid-upstream-response" });
+}
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function rangeArray(value) {
+  if (!Array.isArray(value)) invalidRange();
+  return value;
+}
+function rangeNumber(value) {
+  if ((typeof value !== "number" && typeof value !== "string") ||
+      typeof value === "string" && !value.trim()) invalidRange();
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) invalidRange();
+  return number;
+}
+function rangeBucket(data) {
+  if (!record(data)) invalidRange();
+  const bucket = rangeNumber(data.bucket);
+  if (bucket !== 3600 && bucket !== 86400) invalidRange();
+  return bucket;
+}
+function rangeModel(series) {
+  if (!record(series) || typeof series.model !== "string" || !series.model.trim()) invalidRange();
+  return series.model;
+}
+function rangeTime(value) {
+  const time = rangeNumber(value);
+  // Epoch seconds through year 9999; millisecond timestamps are not seconds.
+  if (!Number.isSafeInteger(time) || time > 253402300799) invalidRange();
+  return time;
 }
 
 function num(v) {
@@ -359,8 +400,29 @@ export class UpstreamAuthError extends UpstreamError {
 
 /* ---------------- 工具 ---------------- */
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function withAbort(signal, operation) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.resolve().then(() => {
+      if (signal.aborted) throw signal.reason;
+      return operation();
+    }).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function sleep(ms, signal) {
+  let timer;
+  try {
+    await withAbort(signal, () => new Promise((resolve) => { timer = setTimeout(resolve, ms); }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function releaseResponse(res) {
+  try { await res?.body?.cancel?.(); } catch { /* A consumed body is already released. */ }
 }
 
 function safeText(res) {

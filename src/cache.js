@@ -13,6 +13,7 @@
  * @param {object} opts
  * @param {number} [opts.ttlMs=600000]
  * @param {() => number} [opts.now]  时钟注入（测试用）
+ * @param {(force: boolean) => Promise<string>} [opts.scope]  当前账号的缓存命名空间
  */
 export function createCache(opts = {}) {
   const ttlMs = opts.ttlMs ?? 600_000;
@@ -22,6 +23,8 @@ export function createCache(opts = {}) {
   const store = new Map();
   /** @type {Map<string, Promise<any>>} */
   const inflight = new Map();
+  let generation = 0;
+  const invalidated = () => Object.assign(new Error("cache-invalidated"), { code: "cache-invalidated" });
 
   /**
    * 读缓存；未命中或过期返回 undefined（不主动拉取）。
@@ -43,6 +46,9 @@ export function createCache(opts = {}) {
    * @param {object} [o] { force?: boolean, ttlMs?: number }  每条可单独设 TTL（实时窗口用短 TTL）
    */
   async function getOrFetch(key, producer, o = {}) {
+    const started = generation;
+    if (opts.scope) key = `${await opts.scope(o.force === true)}:${key}`;
+    if (started !== generation) throw invalidated();
     if (!o.force) {
       const cached = get(key);
       if (cached !== undefined) return cached;
@@ -51,15 +57,21 @@ export function createCache(opts = {}) {
     if (existing) return existing;
 
     const p = Promise.resolve()
-      .then(() => producer())
+      .then(() => {
+        if (inflight.get(key) !== p) throw invalidated();
+        return producer();
+      })
       .then(
         (data) => {
+          if (inflight.get(key) !== p) {
+            throw invalidated();
+          }
           store.set(key, { data, expiresAt: now() + (o.ttlMs ?? ttlMs) });
           inflight.delete(key);
           return data;
         },
         (err) => {
-          inflight.delete(key);
+          if (inflight.get(key) === p) inflight.delete(key);
           throw err;
         }
       );
@@ -73,9 +85,11 @@ export function createCache(opts = {}) {
 
   function invalidate(key) {
     store.delete(key);
+    inflight.delete(key);
   }
 
   function clear() {
+    generation += 1;
     store.clear();
     inflight.clear();
   }

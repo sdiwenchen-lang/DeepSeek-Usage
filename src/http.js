@@ -869,7 +869,8 @@ function attachRoutes(ctx, httpServer, deps) {
       else active -= 1;
     }
   };
-  const loadBalance = (token, force) => cache.getOrFetch("official:balance", () => limited(() => api.fetchSummary(token)), { force, ttlMs: 60_000 });
+  // Read the grant inside this cache producer; its caller may predate an account switch.
+  const loadBalance = (force) => cache.getOrFetch("official:balance", () => limited(async () => api.fetchSummary(await requireToken())), { force, ttlMs: 60_000 });
   const fetchRange = (method, token, window) => limited(() => api[method](token, window));
 
   /**
@@ -907,7 +908,7 @@ function attachRoutes(ctx, httpServer, deps) {
       () =>
         withAuth(async () => {
           const token = await requireToken();
-          const jobs = [loadBalance(token, false)];
+          const jobs = [loadBalance(false)];
           if (hasDaily) {
             jobs.push(fetchRange("fetchRangeAmount", token, { start, end: dailyEnd, tz }));
             jobs.push(fetchRange("fetchRangeCost", token, { start, end: dailyEnd, tz }));
@@ -957,7 +958,7 @@ function attachRoutes(ctx, httpServer, deps) {
         withAuth(async () => {
           const token = await requireToken();
           const [user, amount, cost] = await Promise.all([
-            loadBalance(token, force),
+            loadBalance(force),
             end > start ? fetchRange("fetchRangeAmount", token, { start, end, tz }) : { bucket: 3600, rows: [] },
             end > start ? fetchRange("fetchRangeCost", token, { start, end, tz }) : { bucket: 3600, rows: [] },
           ]);
@@ -983,7 +984,7 @@ function attachRoutes(ctx, httpServer, deps) {
     const actualTo = to < today ? to : today;
     const summaries = [];
     if (from <= actualTo) {
-      if (force) await withAuth(async () => loadBalance(await requireToken(), true));
+      if (force) await withAuth(() => loadBalance(true));
       const pages = await Promise.all(monthsBetweenDates(from, actualTo).map(({ year, month }) => {
         const start = Math.max(monthStartSec(year, month, tz), Date.parse(`${from}T00:00:00Z`) / 1000 - tz);
         const next = Math.min(monthStartSec(year, month + 1, tz), Date.parse(`${actualTo}T00:00:00Z`) / 1000 - tz + 86_400);

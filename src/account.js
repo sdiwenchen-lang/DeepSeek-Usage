@@ -17,6 +17,8 @@
  * @module deepseek-usage/account
  */
 
+import { createHash } from "node:crypto";
+
 /** 宿主凭据记录：owner。 */
 export const ACCOUNT_OWNER = "deepseek-account-platform";
 
@@ -42,6 +44,7 @@ export function createAccountSource(host, opts = {}) {
 
   let cached; // { token?: string, at: number }
   let inflight;
+  let generation = 0;
 
   const canRead = typeof host?.readRecord === "function";
 
@@ -70,21 +73,33 @@ export function createAccountSource(host, opts = {}) {
       const at = now();
       if (!force && cached && at - cached.at < ttlMs) return cached.token;
       if (!inflight) {
-        inflight = readToken()
+        const started = generation;
+        const pending = readToken()
           .then((token) => {
+            // A credential event may invalidate a read before storage returns it.
+            if (started !== generation) return this.getToken();
             cached = { token, at: now() };
             return token;
           })
           .finally(() => {
-            inflight = undefined;
+            if (inflight === pending) inflight = undefined;
           });
+        inflight = pending;
       }
       return inflight;
     },
 
-    /** 丢掉缓存：拿到 401 时调用，下次重新读库（用户可能刚重新登录）。 */
+    /** Scope cached bills to the current grant without retaining a plaintext token in keys. */
+    async cacheScope(force = false) {
+      const token = await this.getToken(force);
+      return createHash("sha256").update(token ?? "").digest("hex");
+    },
+
+    /** 丢掉缓存：凭据变更或拿到 401 时重新读库。 */
     invalidate() {
+      generation += 1;
       cached = undefined;
+      inflight = undefined;
     },
 
     /** 给 /status 用的状态。 */

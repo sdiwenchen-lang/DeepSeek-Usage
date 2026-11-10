@@ -18,7 +18,7 @@
  * @module deepseek-usage
  */
 
-import { createAccountSource } from "./account.js";
+import { ACCOUNT_RECORD_KEY, createAccountSource } from "./account.js";
 import { createApiClient } from "./apiclient.js";
 import { createBudget, createBudgetStore } from "./budget.js";
 import { createCache } from "./cache.js";
@@ -48,10 +48,14 @@ export function apply(ctx, config = {}) {
     log: (...args) => logger?.info?.("deepseek-usage.apiclient:", ...args),
   });
 
-  const cache = createCache({ ttlMs: config.cacheTtlMs ?? 600_000 });
-
   // 账号会话直接复用宿主里已登录的 DeepSeek 账号 grant（不登录、不落盘、不存密码）。
   const account = createAccountSource(ctx.credentials);
+  const cache = createCache({ ttlMs: config.cacheTtlMs ?? 600_000, scope: (force) => account.cacheScope(force) });
+  ctx.on("credentials/record-updated", (key) => {
+    if (key !== ACCOUNT_RECORD_KEY) return;
+    account.invalidate();
+    cache.clear();
+  });
 
   // 本地聚合：只读宿主 sessionPersistence，不建库、不依赖 TokenLedger。
   // `ctx.get` 探测而非直接读属性，保持软依赖（旧宿主没有该服务时端点返回 503）。
@@ -97,6 +101,8 @@ export function apply(ctx, config = {}) {
 
   // 4. 卸载时清理（P4）
   ctx.on("dispose", () => {
+    api.dispose();
+    account.invalidate();
     cache.clear();
     local.clear();
   });
