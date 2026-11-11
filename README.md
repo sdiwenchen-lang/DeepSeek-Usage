@@ -1,7 +1,7 @@
 # DeepSeek Usage
 
 > DSH 里的 DeepSeek 用量与预算面板：官方模式读取宿主已登录账号的余额、账单、每日用量与费用；本地模式读取 DSH 全部 Provider 的会话日志，按可编辑的逐模型费率估算 Token、费用和 API 次数，支持用量日历、趋势、模型排行、会话排行与官方/本地对账。支持主题切换，以及侧边栏 Token、消费、API 次数指标的开关、改名、换图标和拖动排序；可设置每日 Token／CNY 限额，达到上限后熔断所有后续模型调用，在状态栏显示红色告警并在对应会话返回失败原因，北京时间次日自动恢复；顶部状态栏与侧边栏共享同一份今日用量快照，保持数据一致。
-> 点侧边栏「用量」弹出居中大弹窗：默认走官方账号（不登录、不落盘凭据），可切到本地聚合看 DSH 实际跑了多少。
+> **官方账单口径**：复用 DSH 已登录的 DeepSeek 平台账户读取余额与账单，按账户汇总（可包含该账户在其他客户端或机器的调用），不提供单独配置 API Key 查询账单的入口。通过 API Key 或其他 Provider 发出的 DSH 请求，在会话日志上报 usage 后进入本地统计；本地金额按费率估算，不等于 Provider 实际账单。
 
 ---
 
@@ -31,7 +31,7 @@
 
 - **官方模式（默认，免登录）**：面板里没有登录表单，不接收 token，不落盘凭据。取数时按需读一次宿主已登录 DeepSeek 账号的凭据记录，带 `x-dsh-auth-token` 调平台接口。拿到的是账单真值——实际扣了多少钱、余额还剩多少。
 - **本地模式**：读 DSH 会话日志里各 provider 上报的 `usage`，回答的是另一个问题：DSH 里到底跑了多少 Token。中转站、OpenAI / Codex 这类非官方路由也一起算进来。
-- **为什么两个都得看**：官方账单只有总账，不告诉你钱是哪个模型花的；本地日志可能缺上报，也可能碰上没有定价的模型。只看一边，结论就可能是错的。所以面板同时给覆盖率、差额和逐日 / 逐小时对账，本地金额明确标注「按当前费率估算」「部分模型未定价」，未知模型不按 0 元计入，而是标「暂无费率」。
+- **为什么两个都得看**：官方账单覆盖账户在所有客户端和机器的消费，本地日志提供本机 DSH 会话归属，但可能缺失上报或模型费率。对账端点提供覆盖率、差额和逐日 / 逐小时对比；本地金额明确标注「按当前费率估算」「部分模型未定价」，未知模型不按 0 元计入，而是标「暂无费率」。
 
 ### 2. 图标与主题都换得动
 
@@ -41,7 +41,7 @@
 
 ### 3. 模型价格自己说了算
 
-- 内置 **139 个模型**的四通道费率（未命中输入 / 输出 / 缓存命中 / 缓存写入，USD / 百万 Tokens），覆盖 15 家供应商：Anthropic、OpenAI、Google、DeepSeek、xAI Grok、通义千问、Kimi、智谱 GLM、MiniMax、豆包、腾讯混元、Mistral、Cohere、小米 MiMo、阶跃星辰 Step。
+- 内置 **142 个模型**的四通道费率（未命中输入 / 输出 / 缓存命中 / 缓存写入，USD / 百万 Tokens），覆盖 15 家供应商：Anthropic、OpenAI、Google、DeepSeek、xAI Grok、通义千问、Kimi、智谱 GLM、MiniMax、豆包、腾讯混元、Mistral、Cohere、小米 MiMo、阶跃星辰 Step。
 - **单价能改、模型能增删**：「管理定价」里搜索、编辑、新增任意模型，勾选批量删除或点行尾垃圾桶单个删；删掉的默认模型从列表隐藏并按未计价处理，工具栏可一键恢复默认费率与全部模型。
 - **汇率可点改**：默认 6.7，在「显示设置 → 定价」直接改，数字显示与输入均居中；改完立刻重算已缓存的 Token，不重读日志。
 
@@ -55,7 +55,7 @@
 
 按已确认规则，缺失日志或费率时，对应无法完整统计的限额继续放行并显示「统计不完整」。完整的 Token 限额仍可单独生效。费用为估算，供应商上报延迟、在途并发请求、日志删除及缺失用量可能使最终消耗超过限额；插件只约束当前宿主的受控调用。
 
-规则与验收见 [会话用量与每日限额](docs/session-usage-and-budget.md)，业务术语见 [领域词汇表](CONTEXT.md)。
+规则与验收见 [会话用量与每日限额](https://github.com/sdiwenchen-lang/DeepSeek-Usage/blob/main/docs/session-usage-and-budget.md)，业务术语见 [领域词汇表](https://github.com/sdiwenchen-lang/DeepSeek-Usage/blob/main/CONTEXT.md)。
 
 ## 它是什么
 
@@ -68,7 +68,7 @@ DeepSeek Usage 把用量数据搬进 DSH，写代码间隙瞄一眼就知道今�
   「DeepSeek 官方 / 全部 Provider」切换。数据源选择会持久化，侧边栏指标
   跟随当前数据源；本地模式不显示约等号，金额注明按当前费率估算（日志覆盖可能不完整，
   不声称与账单等价）；余额仍读取官方账户余额，和本地日志范围无关。
-- **本地费用估算**：四通道计价、139 个模型的内置快照、按模型增删改与汇率，见上面「三个优势 · 3」。不按时段切换，未定价模型显示「暂无费率」。
+- **本地费用估算**：四通道计价、142 个模型的内置快照、按模型增删改与汇率，见上面「三个优势 · 3」。不按时段切换，未定价模型显示「暂无费率」。
 - **用量日历**：当月每日 Token 热力图，5 级深浅，可翻月；切到「按周」/「按月」是跨月的周 / 月汇总热力表。
 - **筛选**：时间范围（今天 / 昨天 / 近 7 天 / 近 30 天 / 本月 / 上月）、模型多选。
 
@@ -196,7 +196,7 @@ dsh plugin --profile web add github:sdiwenchen-lang/DeepSeek-Usage
         #     cacheWrite: 1.25
 ```
 
-默认费率来自 `src/pricing.snapshot.json`，快照日期 2026-10-30，共 139 个模型，覆盖 15 家供应商：Anthropic、OpenAI、Google、DeepSeek、xAI Grok、通义千问、Kimi、智谱 GLM、MiniMax、豆包、腾讯混元、Mistral（含 Devstral / Codestral）、Cohere、小米 MiMo、阶跃星辰 Step。保留每个家族的最新与次新版本和兼容别名，剔除预览 / 实验版本、日期别名和推理档位别名；美元兑人民币默认按内置 6.7 估算。DeepSeek 采用高峰价（USD / 百万 Tokens，命中 / 未命中 / 输出）：V4.1 Flash `0.006 / 0.30 / 1.20`，V4 Flash（旧版/兼容）`0.014 / 0.44 / 1.32`，V4 Pro `0.044 / 1.32 / 3.96`；面板不区分峰谷时段。汇率可在「显示设置 → 定价」直接点击修改；在「管理定价…」中可搜索、编辑或添加模型，可勾选行批量删除或点行尾垃圾桶删除；删除默认模型会将其从定价列表隐藏并按未计价处理，工具栏可恢复默认费率与全部模型；浏览器只保存 USD 稀疏覆盖和本地隐藏列表。旧人民币峰谷配置保留但不直接迁移。
+默认费率来自 `src/pricing.snapshot.json`，快照日期 2026-11-10，共 142 个模型，覆盖 15 家供应商：Anthropic、OpenAI、Google、DeepSeek、xAI Grok、通义千问、Kimi、智谱 GLM、MiniMax、豆包、腾讯混元、Mistral（含 Devstral / Codestral）、Cohere、小米 MiMo、阶跃星辰 Step。保留已有家族版本与兼容别名；不主动新增仅日期/推理档位的别名，`deepseek-v4-flash-vision-exp` 是官方仍接受并映射到当前 Flash 的兼容名。美元兑人民币默认按内置 6.7 估算。DeepSeek 采用高峰价（USD / 百万 Tokens，命中 / 未命中 / 输出）：V4.1 Flash `0.006 / 0.30 / 1.20`，旧版 Flash 与视觉实验兼容名沿用当前 Flash 价，V4 Pro `0.044 / 1.32 / 3.96`；面板不区分峰谷时段。Kimi K3.1 Pro / Highspeed 的公开基准价为 `2 / 10 / 0.2` 与 `4 / 20 / 0.2`（USD / 百万 Tokens，未命中输入 / 输出 / 命中缓存），缓存写入默认使用官方 5 分钟档（Pro $2、Highspeed $4 / 百万 Tokens），1 小时 TTL 的写入价均为两倍，请在「管理定价…」中按实际使用调整。DeepSeek 官方 API 价目与兼容规则见[官方模型与价格页](https://api-docs.deepseek.com/quick_start/pricing/)，Kimi 的完整 USD 价目见[官方定价页](https://platform.kimi.ai/docs/pricing/chat)，缓存默认值及四通道互斥口径见[官方缓存文档](https://platform.kimi.ai/docs/guide/context-caching.md)。
 
 公式为 `(未命中输入×input + 输出×output + 缓存命中×cacheRead + 缓存写入×cacheWrite) / 1,000,000` 美元，再按内置 6.7 的汇率换算为人民币。「消费金额」卡只显示人民币金额，点击不跳转。未知模型不当免费；空/未来用量为零。部分已定价的金额仅代表已覆盖部分，响应标记 `complete: false` 和 `unpricedModels`。修改费率会重算已缓存 Token，不重读未变化日志。
 
@@ -228,7 +228,7 @@ DeepSeek-Usage/
 │   ├── local-fold.js   # 纯折叠：usage 事件 → 小时/route 桶；同 (turn, step) 替换
 │   ├── local.js        # 本地数据源：sessionPersistence 扫描、revision 缓存、范围聚合
 │   ├── pricing.js      # 四通道 USD 费率、显式 FX、缓存分析与费用覆盖率
-│   ├── pricing.snapshot.json # 139 个主流模型离线默认费率
+│   ├── pricing.snapshot.json # 142 个主流模型离线默认费率
 │   ├── reconcile.js    # 官方 vs 本地对账 payload
 │   ├── client.js       # 浏览器半边：__ModuleLoader__ bundle，React 组件与图表（纯 SVG）
 │   └── panel.css       # 面板样式（由 /panel.css 下发）
@@ -243,6 +243,7 @@ DeepSeek-Usage/
 
 ```bash
 npm test               # 离线 mock API、计价、本地聚合与客户端回归
+npm run pack:check     # 实际 npm 清单与体积：压缩 ≤110KiB，解包 ≤420KiB
 npm run bundle:check   # 客户端 bundle 体积上限 124KiB（126976B）
 ```
 
@@ -269,8 +270,7 @@ npm pack                 # 产出 deepseek-usage-<version>.tgz
 npm pack --dry-run       # 只看会进包的文件清单，不落盘
 ```
 
-`package.json` 的 `files` 决定包内内容：`src/`、`cordis.patch.yml`、`README.md`、
-`CHANGELOG.md`、`LICENSE`。**`cordis.patch.yml` 是安装入口**（`dsh.bundle.patch` 指向它），
+`package.json` 的 `files` 只包含运行源码、图标、本地化资源、安装补丁、README 与许可：`src/`、`icon.svg`、`locale/`、`cordis.patch.yml`、`README.md`、`LICENSE`。开发文档、截图、测试、锁文件和历史更新记录保留在仓库，不随 npm 安装。**`cordis.patch.yml` 是安装入口**（`dsh.bundle.patch` 指向它），
 漏掉它包能装、但 UI 不会出现任何入口。
 
 装进桌面 App：
@@ -300,7 +300,8 @@ tag 建 Release——正文就是插件市场「更新内容」里显示的版�
 
 | 项 | 预算 | 实测 |
 | --- | --- | --- |
-| 客户端 bundle | ≤ 126976B | 126203B（0.1.7 验证） |
+| npm 分发包 | 压缩 ≤110KiB / 解包 ≤420KiB | 约 109KB / 410KB（本轮，原压缩 121KB） |
+| 客户端 bundle | ≤ 126976B | 126107B（本轮验证） |
 | 面板样式 | 独立下发 | ~112KB |
 | 侧边栏摘要 | 每 120 秒刷新当前数据源 | 同费率口径 |
 | 图表渲染 | 纯 SVG，≤ 5ms | 满足 |
@@ -316,8 +317,8 @@ tag 建 Release——正文就是插件市场「更新内容」里显示的版�
 
 ## 已知限制
 
-- 依赖 platform.deepseek.com 的内部接口，官方无承诺，接口变动需改 `apiclient.js`。
-- 只覆盖 platform 账号（即 DSH 已登录的那个），API Key 用量不在范围内。
+- 官方余额与账单依赖 platform.deepseek.com 的内部接口，官方无承诺，接口变动需改 `apiclient.js`。
+- 官方账单按 DSH 已登录的 DeepSeek 平台账户汇总；没有独立配置 API Key 的云端账单接入。DSH 内 API Key Provider 的本地用量在日志包含 usage 时统计。
 - 热力图固定当月，跨年回看以月为单位。
 
 ## License

@@ -1,7 +1,7 @@
 {
   "name": "deepseek-usage",
   "version": "0.1.8",
-  "description": "DSH 里的 DeepSeek 用量与预算面板：官方模式读取宿主已登录账号的余额、账单、每日用量与费用；本地模式读取 DSH 全部 Provider 的会话日志，按可编辑的逐模型费率估算 Token、费用和 API 次数，支持用量日历、趋势、模型排行、会话排行与官方/本地对账。支持主题切换，以及侧边栏 Token、消费、API 次数指标的开关、改名、换图标和拖动排序；可设置每日 Token／CNY 限额，达到上限后熔断所有后续模型调用，在状态栏显示红色告警并在对应会话返回失败原因，北京时间次日自动恢复；顶部状态栏与侧边栏共享同一份今日用量快照，保持数据一致。",
+  "description": "DSH DeepSeek 用量与限额面板：每日 Token/CNY 限额与后续调用熔断，侧边栏指标支持开关、改名、换图标和排序；复用 DSH 登录态读取 DeepSeek 平台账户余额/账单，按可编辑逐模型费率估算全部 Provider 本机会话，提供用量日历、趋势和模型/会话排行。",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -24,18 +24,16 @@
     "src",
     "icon.svg",
     "locale",
-    "docs",
-    "CONTEXT.md",
     "cordis.patch.yml",
     "LICENSE",
-    "README.md",
-    "CHANGELOG.md"
+    "README.md"
   ],
   "engines": {
     "node": ">=18.19.0"
   },
   "scripts": {
     "test": "node --test test/*.test.js",
+    "pack:check": "node scripts/check-package.js",
     "bundle:check": "node -e \"const fs=require('fs');const s=fs.statSync('src/client.js').size;if(s>126976){console.error('bundle too large: '+s+'B > 126976B');process.exit(1)}console.log('bundle OK: '+s+'B');\""
   },
   "keywords": [

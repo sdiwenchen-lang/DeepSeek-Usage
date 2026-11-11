@@ -28,6 +28,7 @@ yarn-error.log*
 
 # ===== 构建产物 =====
 dist/
+*.tgz
 build/
 *.egg
 *.whl
