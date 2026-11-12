@@ -343,7 +343,18 @@ function readRates() {
   var rates = readJSON(RATES_KEY, null);
   return rates && rates.schema === 2 && rates.models && typeof rates.models === "object" ? rates : null;
 }
+var ratesEdited = false, ratesFromHost = false, ratesRevision = 0;
+function getBudget(light) {
+  var revision = ratesRevision;
+  return getJSON("/budget" + (light ? "?light=1" : "")).then(function (value) { value.ratesRevision = revision; return value; });
+}
+function restoreRates(value) {
+  if (ratesEdited || value.ratesRevision !== undefined && value.ratesRevision !== ratesRevision || !value.rates || (value.ratesSaved === false && readRates())) return;
+  ratesFromHost = true;
+  writeJSON(RATES_KEY, value.rates);
+}
 function ratesParam() {
+  if (ratesFromHost) return "";
   var rates = readRates();
   return rates ? "&rates=" + encodeURIComponent(JSON.stringify(rates)) : "";
 }
@@ -373,11 +384,10 @@ function readSeat() {
   Object.keys(defaultSeat).forEach(function (k) {
     var base = defaultSeat[k];
     var row = saved[k] || {};
-    var oldSpend = k === "spend" && row.on === false && !row.img && row.icon === "yen" && row.label === "消费";
     out[k] = {
-      on: oldSpend ? true : row.on === undefined ? base.on : !!row.on,
-      label: row.label === undefined || (k === "tokens" ? row.label === "用量" : k === "requests" && row.label === "请求") ? base.label : String(row.label).slice(0, 8),
-      icon: row.icon === undefined || (!row.img && (k === "tokens" ? row.icon === "layers" : k === "requests" ? row.icon === "activity" : row.icon === "yen")) ? base.icon : String(row.icon),
+      on: row.on === undefined ? base.on : !!row.on,
+      label: row.label === undefined ? base.label : String(row.label).slice(0, 8),
+      icon: row.icon === undefined ? base.icon : String(row.icon),
       img: row.img || "",
     };
   });
@@ -810,15 +820,7 @@ function RateDialog(props) {
     }
     return o;
   };
-  var persist = (next, h) => {
-    var m = {};
-    Object.keys(next).forEach(k => {
-      var r = next[k], d = D[k], same = !!d;
-      if (same) F.forEach(f => { if (Number(r[f]) !== Number(d[f])) same = false; });
-      if (!same) m[k] = Object.fromEntries(F.map(f => [f, Number(r[f])]));
-    });
-    props.onSave({ schema: 2, usdToCny: fx, models: m, hidden: h || hidden }, true);
-  };
+  var persist = (next, h) => props.onSave({ schema: 2, usdToCny: fx, models: next, hidden: h || hidden }, true);
   var commit = (next, h) => { setRows(next); if (h) setHidden(h); persist(next, h); };
   var toggleSel = k => { var n = { ...sel }; if (n[k]) delete n[k]; else n[k] = 1; setSel(n); };
   var openDraft = () => { setDraft({ name: "", input: "", output: "", cacheRead: "", cacheWrite: "" }); setEdit(""); setBuff(null); setError(""); setPage(0); };
@@ -843,9 +845,7 @@ function RateDialog(props) {
     if (!buff) return;
     var p = nums(buff);
     if (!p) { setError(edit + "：费率必须为非负数字。"); return; }
-    var next = { ...rows }, d = D[edit], same = !!d;
-    if (same) F.forEach(f => { if (Number(p[f]) !== Number(d[f])) same = false; });
-    if (same) delete next[edit]; else next[edit] = p;
+    var next = { ...rows, [edit]: p };
     commit(next);
     var n = { ...sel }; delete n[edit]; setSel(n);
     setEdit(""); setBuff(null); setError("");
@@ -920,8 +920,9 @@ function RateDialog(props) {
 }
 
 function postBudget(body) {
+  var revision = ratesRevision;
   return fetch(BASE + "/budget", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) }).then(function (r) {
-    return r.json().then(function (value) { if (!r.ok) throw new Error(value.message || value.error || "保存失败"); return value; });
+    return r.json().then(function (value) { if (!r.ok) throw new Error(value.message || value.error || "保存失败"); value.ratesRevision = revision; return value; });
   });
 }
 function createSourceSync(read, write, accept, fail) {
@@ -1059,7 +1060,7 @@ function BudgetSettings(props) {
     jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
       blocked
         ? jsx("b", { children: "已达到每日限额，后续调用已熔断；次日 00:00 或提高限额后恢复" })
-        : jsx("span", { children: "达到上限熔断所有调用，按当前本地/官方模式计算。" + (incomplete ? " 统计不完整。" : "") }),
+        : jsx("span", { children: "达到上限熔断所有调用，按当前本地/官方模式计算。" + (incomplete ? "统计不完整，已知用量达限仍熔断。" : "") }),
     ] }),
     error || (info && !info.status.storageAvailable) ? jsx("span", { className: "d-budget-inline-status" + (error ? " d-budget-warning" : ""), role: error ? "alert" : "status", title: error || (info ? budgetLabel(info) : ""), children: error || "宿主配置存储不可用" }) : null,
   ] });
@@ -1132,9 +1133,10 @@ function Dialog(props) {
   var requestRef = useRef(0);
   var budgetRef = useRef(0);
   var ratesSyncRef = useRef(0);
+  var readyS = st(false); var ready = readyS[0];
   var modeS = st(readSourceMode()); var mode = modeS[0]; var setMode = modeS[1];
   var sourceRef = useRef(null);
-  if (!sourceRef.current) sourceRef.current = createSourceSync(function () { return getJSON("/budget"); }, postBudget, function (value) {
+  if (!sourceRef.current) sourceRef.current = createSourceSync(function () { return getBudget(); }, postBudget, function (value) {
     acceptBudget(value); setMode(value.config.mode); writeSourceMode(value.config.mode);
   }, function () { window.alert("读取或切换数据源失败，未确认与宿主限额同步，请重试。"); });
   useEffect(function () { sourceRef.current.load(); return function () { sourceRef.current.close(); }; }, []);
@@ -1176,8 +1178,8 @@ function Dialog(props) {
     document.addEventListener("pointerdown", down);
     return function () { document.removeEventListener("pointerdown", down); };
   }, [open, detail]);
-  useEffect(function () { loadView(false); }, [range, custom, anchor.year, anchor.month, page, dim, mode]);
-  useEffect(function () { loadToday(); }, [mode]);
+  useEffect(function () { loadView(false); }, [range, custom, anchor.year, anchor.month, page, dim, mode, ready]);
+  useEffect(function () { loadToday(); }, [mode, ready]);
   useEffect(function () {
     setSel(null); setData(null); setCal(null); setToday(null); setDetail(null); setErr(""); setOpen("");
   }, [mode]);
@@ -1186,9 +1188,10 @@ function Dialog(props) {
     if (!auto) return;
     var timer = window.setInterval(function () { loadView(false); loadToday(false); }, interval * 1000);
     return function () { clearInterval(timer); };
-  }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode]);
+  }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode, ready]);
 
   function loadView(force) {
+    if (!ready) return;
     var id = requestRef.current + 1;
     requestRef.current = id;
     setBusy(true);
@@ -1244,6 +1247,7 @@ function Dialog(props) {
   }
 
   function loadToday(force) {
+    if (!ready) return;
     if (force) loadBudget();
     return todayLoad(mode, !!force);
   }
@@ -1253,15 +1257,16 @@ function Dialog(props) {
     writeJSON(SEAT_KEY, next);
     try { window.dispatchEvent(new Event("deepseek-usage:seat")); } catch (e) {  }
   }
-  function acceptBudget(value) { ++budgetRef.current; setBudgetInfo(value); }
+  function acceptBudget(value) { ++budgetRef.current; restoreRates(value); setFx((readRates() || {}).usdToCny || DEFAULT_FX); readyS[1](true); setBudgetInfo(value); notifySource(); }
   function loadBudget() {
     var id = ++budgetRef.current;
-    getJSON("/budget").then(function (value) { if (id === budgetRef.current) setBudgetInfo(value); }).catch(function () { if (id === budgetRef.current) setBudgetInfo(null); });
+    getBudget().then(function (value) { if (id === budgetRef.current) acceptBudget(value); }).catch(function () { if (id === budgetRef.current) setBudgetInfo(null); });
   }
   function syncBudgetRates(rates) {
+    ratesEdited = true; var revision = ++ratesRevision;
     var id = ++ratesSyncRef.current;
     ++budgetRef.current;
-    postBudget({ rates: rates }).then(function (value) { if (id === ratesSyncRef.current) { acceptBudget(value); setRatesError(""); } }).catch(function () { if (id === ratesSyncRef.current) setRatesError("费率已在本地保存，但未同步到宿主限额。请重试保存定价或限额。"); });
+    postBudget({ rates: rates }).then(function (value) { if (id === ratesSyncRef.current && revision === ratesRevision) { ratesEdited = false; acceptBudget(value); setRatesError(""); loadView(true); loadToday(true); } }).catch(function () { if (id === ratesSyncRef.current && revision === ratesRevision) setRatesError("费率未同步；用量与限额仍按宿主价格。请重试保存。"); });
   }
   function saveFx() {
     var n = Number(fxDraft);
@@ -1413,6 +1418,7 @@ function Dialog(props) {
                 type: "button",
                 "data-tooltip": "设置主题、状态栏、定价、每日限额与刷新",
                 "aria-label": "显示设置",
+                disabled: !ready,
                 "aria-expanded": settingsOpen ? "true" : "false",
                 onClick: function () { setOpen(settingsOpen ? "" : "settings:appearance"); },
                 children: svg(P.settings, 16),
@@ -1863,7 +1869,7 @@ function Dialog(props) {
     className: "d-page-detail",
     children: [
       jsxs("div", { className: "d-dashboard-head", children: [tdBtn] }),
-      budgetInfo && budgetInfo.status.enabled ? jsxs("div", { className: "d-budget-banner" + (budgetInfo.status.blocked ? " d-budget-banner-blocked" : ""), role: budgetInfo.status.blocked ? "alert" : "status", children: [jsx("span", { children: budgetLabel(budgetInfo) + (budgetIncomplete ? " · ⚠ 统计不完整" : "") }), jsx("button", { type: "button", className: "d-settings-link", onClick: function () { setOpen("settings:budget"); }, children: "管理限额" })] }) : null,
+      budgetInfo && budgetInfo.status.enabled ? jsxs("div", { className: "d-budget-banner" + (budgetInfo.status.blocked ? " d-budget-banner-blocked" : ""), role: budgetInfo.status.blocked ? "alert" : "status", children: [jsx("span", { children: budgetLabel(budgetInfo) + (budgetIncomplete ? " · ⚠ 统计不完整，按已知用量判断限额" : "") }), jsx("button", { type: "button", className: "d-settings-link", onClick: function () { setOpen("settings:budget"); }, children: "管理限额" })] }) : null,
       ratesError ? jsx("p", { role: "alert", className: "d-budget-warning", children: ratesError }) : null,
       metricCards(sums, mode === "local" ? "本地用量合计" : "官方账单合计"),
       jsx(TokenUsageCard, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip, official: mode !== "local", officialTokens: mode === "local" ? null : sums.tokens, sessions: data && data.sessions, fx: fxNow }),
@@ -2222,8 +2228,14 @@ function DeepSeekUsageSeat(props) {
   var today = todayS[0];
   var setToday = todayS[1];
   var revisionS = useState(0); var revision = revisionS[0];
+  var readyS = useState(false);
   var wide = props.wide !== false;
   useEffect(function () { injectStyles(); }, []);
+  useEffect(function () {
+    var alive = true;
+    getBudget(true).then(function (value) { if (alive) { restoreRates(value); readyS[1](true); notifySource(); } }).catch(function () {});
+    return function () { alive = false; };
+  }, []);
   useEffect(function () {
     function sync() { setCfg(readSeat()); }
     window.addEventListener("deepseek-usage:seat", sync);
@@ -2235,6 +2247,7 @@ function DeepSeekUsageSeat(props) {
     return function () { window.removeEventListener("deepseek-usage:source", sync); };
   }, []);
   useEffect(function () {
+    if (!readyS[0]) return;
     var alive = true;
     setToday(null);
     function sync(event) { if (alive && event.detail && event.detail.mode === mode && event.detail.key === todayKey(mode)) setToday(event.detail.value); }
@@ -2251,7 +2264,7 @@ function DeepSeekUsageSeat(props) {
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("focus", wake);
     };
-  }, [mode, revision]);
+  }, [mode, revision, readyS[0]]);
   var order = seatOrder(cfg);
   var enabled = order.filter(function (k) { return cfg[k] && cfg[k].on; });
   var items = enabled.map(function (k) {

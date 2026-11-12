@@ -49,6 +49,7 @@ export function createBudgetStore(ctx) {
       await found.editor.edit(found.entry, (current) => {
         saved = { ...copy(budget), ...copy(current.budget ?? {}) };
         if (changed.config) { saved.mode = budget.mode; saved.tokens = copy(budget.tokens); saved.cny = copy(budget.cny); }
+        else if (changed.mode) saved.mode = budget.mode;
         if (changed.rates && budget.rates !== undefined) saved.rates = copy(budget.rates);
         return { ...current, budget: saved };
       });
@@ -63,6 +64,7 @@ export function createBudget({ local, official, pricing = local?.pricing, initia
     tokens: initial.tokens ?? { enabled: false, limit: 0 },
     cny: initial.cny ?? { enabled: false, limit: 0 },
   });
+  let ratesSaved = initial.rates !== undefined;
   const defaultPricing = pricing ?? createPricing();
   const defaultTables = defaultPricing.tables();
   let rates = initial.rates ? copy(initial.rates) : {
@@ -118,10 +120,12 @@ export function createBudget({ local, official, pricing = local?.pricing, initia
     if (data && !valid(tokens)) incompleteReasons.push("tokens-unavailable");
     const costComplete = tokenComplete && valid(cny) && data.costMeta?.complete === true && data.costMeta?.fxReady !== false && data.costMeta?.enabled !== false;
     if (data && !costComplete) incompleteReasons.push("cost-incomplete");
+    // Partial totals are a known lower bound; missing usage cannot undo a crossed limit.
+    const costUsable = valid(cny) && data?.costMeta?.fxReady !== false && data?.costMeta?.enabled !== false;
     const reasons = [];
-    if (currentConfig.tokens.enabled && tokenComplete && tokens >= currentConfig.tokens.limit) reasons.push("tokens");
-    if (currentConfig.cny.enabled && costComplete && cny >= currentConfig.cny.limit) reasons.push("cny");
-    return { ...day, timezone: "Asia/Shanghai", mode: currentConfig.mode, enabled: currentConfig.tokens.enabled || currentConfig.cny.enabled, blocked: reasons.length > 0, reasons,
+    if (currentConfig.tokens.enabled && valid(tokens) && tokens >= currentConfig.tokens.limit) reasons.push("tokens");
+    if (currentConfig.cny.enabled && costUsable && cny >= currentConfig.cny.limit) reasons.push("cny");
+    return { ...day, guardPolicy: "known-usage", timezone: "Asia/Shanghai", mode: currentConfig.mode, enabled: currentConfig.tokens.enabled || currentConfig.cny.enabled, blocked: reasons.length > 0, reasons,
       tokens: valid(tokens) ? tokens : null, cny: valid(cny) ? cny : null,
       complete: tokenComplete && costComplete, tokenComplete, costComplete,
       incompleteReasons: [...new Set(incompleteReasons)], checkedAt, storageAvailable: available() };
@@ -132,7 +136,7 @@ export function createBudget({ local, official, pricing = local?.pricing, initia
     if (!withStatus) {
       const day = budgetDay(now());
       return {
-        ok: true, config: copy(currentConfig), storageAvailable: available(), rates: copy(currentRates),
+        ok: true, config: copy(currentConfig), storageAvailable: available(), rates: copy(currentRates), ratesSaved,
         status: {
           ...day, timezone: "Asia/Shanghai", mode: currentConfig.mode,
           enabled: currentConfig.tokens.enabled || currentConfig.cny.enabled,
@@ -141,7 +145,7 @@ export function createBudget({ local, official, pricing = local?.pricing, initia
         },
       };
     }
-    return { ok: true, config: copy(currentConfig), status: await status(currentConfig, currentRates), rates: copy(currentRates) };
+    return { ok: true, config: copy(currentConfig), status: await status(currentConfig, currentRates), rates: copy(currentRates), ratesSaved };
   }
   // Serialize saves so an overlapping browser cannot overwrite a newer in-memory setting.
   let saving = Promise.resolve();
@@ -155,9 +159,10 @@ export function createBudget({ local, official, pricing = local?.pricing, initia
       const nextConfig = { ...(next ?? config), mode: mode ?? next?.mode ?? config.mode };
       const nextRates = supplied ?? rates;
       if (!store?.save) throw Object.assign(new Error("budget-storage-unavailable"), { code: "budget-storage-unavailable" });
-      const persisted = await store.save({ ...nextConfig, rates: copy(nextRates) }, { config: next !== undefined || mode !== undefined, rates: supplied !== undefined });
+      const persisted = await store.save({ ...nextConfig, rates: copy(nextRates) }, { config: next !== undefined, mode: mode !== undefined, rates: supplied !== undefined });
       config = persisted ? validateBudgetConfig({ mode: persisted.mode, tokens: persisted.tokens, cny: persisted.cny }) : nextConfig;
-      rates = copy(persisted?.rates ?? nextRates);
+      rates = effective(persisted?.rates ?? nextRates);
+      ratesSaved = ratesSaved || supplied !== undefined || persisted?.rates !== undefined;
       return read();
     });
     saving = operation.catch(() => {});

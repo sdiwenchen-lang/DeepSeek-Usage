@@ -113,25 +113,56 @@ test("configEditor targets the owning Loader entry even with multiple package in
   await assert.rejects(storage.save(config()), /budget-storage-unavailable/);
 });
 
-test("unreadable, truncated or missing usage logs allow calls and report incomplete", async () => {
+test("partial logs block at the known threshold and stay incomplete", async () => {
   for (const coverage of [{ failed: 1 }, { truncated: true }, { error: "list-failed" }, { complete: false, missingUsage: 1 }]) {
-    const { budget } = setup(config(1, 1), { ...payload(), coverage });
-    const result = await budget.read();
-    assert.equal(result.status.blocked, false);
-    assert.equal(result.status.complete, false);
-    assert.ok(result.status.incompleteReasons.includes("logs-incomplete"));
+    for (const [limits, data, blocked, reasons] of [
+      [config(101, 2), payload(100, 1), false, []],
+      [config(100), payload(100, 1), true, ["tokens"]],
+      [config(0, 65), payload(100, 70.69), true, ["cny"]],
+      [config(100, 1), payload(100, 1), true, ["tokens", "cny"]],
+    ]) {
+      const result = await setup(limits, { ...data, coverage }).budget.read();
+      assert.equal(result.status.blocked, blocked);
+      assert.deepEqual(result.status.reasons, reasons);
+      assert.equal(result.status.tokenComplete, false);
+      assert.equal(result.status.costComplete, false);
+      assert.ok(result.status.incompleteReasons.includes("logs-incomplete"));
+    }
+  }
+});
+
+test("unavailable or invalid usage does not invent a threshold crossing", async () => {
+  for (const data of [null, payload(null, null), payload(-1, -1), payload(NaN, Infinity)]) {
+    assert.equal(await setup(config(1, 1), data).budget.blocked(), false);
   }
   const { budget } = setup(config(1), null, { local: { async query() { throw new Error("disk"); } } });
   assert.equal(await budget.blocked(), false);
+  for (const costMeta of [{ complete: false, fxReady: false, enabled: true }, { complete: false, fxReady: true, enabled: false }]) {
+    assert.equal(await setup(config(0, 1), { ...payload(), costMeta }).budget.blocked(), false);
+  }
 });
 
-test("missing rates allow money calls, while complete token limits remain independent", async () => {
-  const data = { ...payload(), costMeta: { complete: false, unpricedTokens: 100 } };
-  assert.equal(await setup(config(0, 1), data).budget.blocked(), false);
-  const result = await setup(config(100, 1), data).budget.read();
+test("partially priced costs block at the known amount; token limits remain independent", async () => {
+  const data = { ...payload(), costMeta: { complete: false, unpricedTokens: 100, fxReady: true, enabled: true } };
+  assert.equal(await setup(config(0, 1), data).budget.blocked(), true);
+  assert.equal(await setup(config(0, 2), data).budget.blocked(), false);
+  const result = await setup(config(100, 2), data).budget.read();
   assert.equal(result.status.blocked, true);
   assert.deepEqual(result.status.reasons, ["tokens"]);
   assert.equal(result.status.costComplete, false);
+});
+
+test("missing usage cannot bypass the stream guard after known spend exceeds the limit", async () => {
+  const data = { ...payload(100, 70.69), coverage: { complete: false, missingUsage: 1 } };
+  const { budget } = setup(config(0, 65), data);
+  const handlers = {};
+  budget.register({ on(name, handler) { handlers[name] = handler; } });
+  let entered = false;
+  const chunks = [];
+  for await (const chunk of handlers["llm/stream"]({}, async function* () { entered = true; yield "paid call"; })) chunks.push(chunk);
+  assert.equal(entered, false);
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].reason.failure.code, BUDGET_FAILURE);
 });
 
 test("config and effective rates survive restart; rates-only saves preserve limits", async () => {
@@ -218,4 +249,41 @@ test("budget validation rejects unsafe and nonsensical thresholds", () => {
   for (const bad of [null, {}, [], { ...config(), extra: true }, { ...config(), tokens: { enabled: true, limit: 0 } },
     { ...config(), tokens: { enabled: true, limit: 1.2 } }, { ...config(), cny: { enabled: true, limit: Infinity } },
     { ...config(), cny: { enabled: "yes", limit: 2 } }, { ...config(), mode: "other" }]) assert.throws(() => validateBudgetConfig(bad), /invalid-budget/);
+});
+
+
+test("upgrades retain saved prices, zero rates, custom models, FX, hidden models and limits", async () => {
+  const rate = { input: 0, output: 99, cacheRead: 0, cacheWrite: 0 };
+  const initial = { ...config(123, 65), rates: { schema: 2, usdToCny: 8.3, models: { "deepseek-flash": rate, "user-model": rate }, hidden: ["kimi-k3"] } };
+  const { budget, storage } = setup(initial);
+  let result = await budget.read({ withStatus: false });
+  assert.equal(result.ratesSaved, true);
+  assert.deepEqual(result.rates.models["deepseek-flash"], rate);
+  assert.deepEqual(result.rates.models["user-model"], rate);
+  assert.equal(result.rates.usdToCny, 8.3);
+  assert.ok(!result.rates.models["kimi-k3"]);
+  assert.ok(result.rates.models["kimi-k3.1-pro"]);
+  await budget.save({ mode: "official" });
+  const restarted = setup(storage.value).budget;
+  result = await restarted.read({ withStatus: false });
+  assert.deepEqual(result.config, { ...config(123, 65), mode: "official" });
+  assert.deepEqual(result.rates.models["deepseek-flash"], rate);
+  assert.deepEqual(result.rates.hidden, ["kimi-k3"]);
+});
+
+test("a mode-only save from an older instance cannot overwrite newer limits or other config", async () => {
+  const initial = config(123, 65);
+  const current = { ...config(999, 99), rates: { schema: 2, usdToCny: 8.2, models: {}, hidden: [] } };
+  const entry = { options: { name: "deepseek-usage" } };
+  let stored = { requestTimeoutMs: 4321, local: { extra: true }, budget: current };
+  const editor = { entries: () => [entry], async edit(_, update) { stored = update(stored); } };
+  const budget = createBudget({ initial, store: createBudgetStore({ get: () => editor }), official: { async usage() { return { available: true, tokens: 0, cost: 0 }; } } });
+  const result = await budget.save({ mode: "official" });
+  assert.equal(stored.budget.tokens.limit, 999);
+  assert.equal(stored.budget.cny.limit, 99);
+  assert.equal(stored.budget.mode, "official");
+  assert.equal(stored.budget.rates.usdToCny, 8.2);
+  assert.equal(stored.requestTimeoutMs, 4321);
+  assert.deepEqual(stored.local, { extra: true });
+  assert.equal(result.config.cny.limit, 99);
 });
