@@ -56,7 +56,6 @@ function svg(paths, size) {
     }),
   });
 }
-// 图表视图切换图标：排行（横条）/ 趋势（竖列）。
 var VIEW_ICONS = {
   rank: ["M3 7h12M3 12h18M3 17h8"],
   trend: ["M4 20V10M10 20V4M16 20v-8M22 20H2"],
@@ -120,7 +119,7 @@ function fmtInt(n) {
   return (Number(n) || 0).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
 }
 function seatValue(t, k) {
-  return !t ? "\u2014" : k === "spend" ? (t.cost == null ? "\u2014" : fmtMoney(t.cost)) : fmtInt(k === "tokens" ? t.tokens : t.requests);
+  return !t || t.error ? "\u2014" : k === "spend" ? (t.cost == null ? "\u2014" : fmtMoney(t.cost)) : fmtInt(k === "tokens" ? t.tokens : t.requests);
 }
 function p2(n) {
   return n < 10 ? "0" + n : String(n);
@@ -151,8 +150,8 @@ var RANGES = [
   { k: "lastMonth", l: "上月" },
 ];
 
-function getJSON(path) {
-  return fetch(BASE + path, { headers: { Accept: "application/json" } }).then(function (r) {
+function getJSON(path, signal) {
+  return fetch(BASE + path, { headers: { Accept: "application/json" }, signal: signal }).then(function (r) {
     if (!r.ok) {
       var e = new Error("http " + r.status);
       e.status = r.status;
@@ -160,6 +159,13 @@ function getJSON(path) {
     }
     return r.json();
   });
+}
+
+function usageError(e) {
+  if (e.status === 401) return "未检测到 DeepSeek 账号，请在 DSH 登录后重试。";
+  if (e.status === 429) return "请求过于频繁，请稍后重试。";
+  if (e.status === 503) return "用量数据源暂不可用，请检查插件与宿主状态后重试。";
+  return "用量加载失败，请检查连接后重试。";
 }
 
 function blankUsage() {
@@ -193,7 +199,7 @@ function localMoney(row, fx) {
   return row.cost != null ? fmtMoney(row.cost) : row.usd != null ? fmtMoney(row.usd * (fx > 0 ? fx : DEFAULT_FX)) : "—";
 }
 
-var TODAY = { key: "", value: null, at: 0, promise: null, seq: 0 };
+var TODAY = { key: "", value: null, at: 0, promise: null, seq: 0 }, todayController;
 function todayKey(mode) {
   return mode + "|" + new Date(Date.now() + TZ * 1000).toISOString().slice(0, 10) + "|" + (mode === "local" ? ratesParam() : "");
 }
@@ -208,16 +214,16 @@ function todayLoad(mode, force) {
   }
   if (!force && TODAY.key === key && TODAY.promise) return TODAY.promise;
   var seq = ++TODAY.seq;
+  if (todayController) todayController.abort();
+  todayController = new AbortController();
   var path = mode === "local" ? "/local?range=today&tz=" + TZ + "&scope=all" + ratesParam() : "/official?range=today&tz=" + TZ;
-  var p = getJSON(path).then(function (payload) {
+  var p = getJSON(path, todayController.signal).then(function (payload) {
     var rows = (payload.points && payload.points.length ? payload.points : payload.days) || [];
     var value = total(rows, null);
     if (seq === TODAY.seq) { TODAY = { key: key, value: value, at: Date.now(), promise: null, seq: seq }; todayEmit(mode, value, key); }
-    else if (key !== TODAY.key) todayEmit(mode, value, key);
     return value;
-  }).catch(function () {
-    if (seq === TODAY.seq) { TODAY.value = null; TODAY.at = 0; TODAY.promise = null; todayEmit(mode, null, key); }
-    else if (key !== TODAY.key) todayEmit(mode, null, key);
+  }).catch(function (e) {
+    if (seq === TODAY.seq) { TODAY.value = { error: usageError(e) }; TODAY.at = 0; TODAY.promise = null; todayEmit(mode, TODAY.value, key); }
     return null;
   });
   TODAY = { key: key, value: TODAY.key === key ? TODAY.value : null, at: 0, promise: p, seq: seq };
@@ -260,21 +266,11 @@ function rangeDates(k) {
   if (k === "lastMonth") return { from: new Date(end.getFullYear(), end.getMonth() - 1, 1), to: new Date(end.getFullYear(), end.getMonth(), 0) };
   return { from: end, to: end };
 }
-function loadRange(from, to, force) {
-  var lo = typeof from === "string" ? from : iso(from);
-  var hi = typeof to === "string" ? to : iso(to);
-  return getJSON("/official?from=" + lo + "&to=" + hi + "&tz=" + TZ + (force ? "&force=1" : "")).then(function (payload) {
-    return { days: payload.points || payload.days || [], balance: payload.balance, granularity: "day" };
-  });
+function usageView(payload, local) {
+  return { days: payload.points || payload.days || [], balance: payload.balance || {}, granularity: payload.granularity || "day", local: local ? payload : null, updatedAt: local ? payload.coverage?.lastSweepAt : payload.fetchedAt };
 }
-
-function loadLocalRange(from, to, force) {
-  var fromIso = typeof from === "string" ? from : iso(from);
-  var toIso = typeof to === "string" ? to : iso(to);
-  return getJSON("/local?from=" + fromIso + "&to=" + toIso + "&tz=" + TZ + "&scope=all" + ratesParam() + (force ? "&force=1" : "")).then(function (payload) {
-    var days = (payload.points || payload.days || []).filter(function (d) { return d.date >= fromIso && d.date <= toIso; });
-    return { days: days, balance: payload.balance || {}, granularity: payload.granularity || "day", local: payload };
-  });
+function loadRange(from, to, force, signal, local) {
+  return getJSON((local ? "/local" : "/official") + "?from=" + (typeof from === "string" ? from : iso(from)) + "&to=" + (typeof to === "string" ? to : iso(to)) + "&tz=" + TZ + (local ? "&scope=all" + ratesParam() : "") + (force ? "&force=1" : ""), signal).then(function (p) { return usageView(p, local); });
 }
 
 var TZ = -new Date().getTimezoneOffset() * 60;
@@ -514,8 +510,7 @@ function StackedChart(props) {
   });
 }
 
-// 各模型消费金额排行：条形长度 = 金额、按金额降序、条末直接标注金额。
-// 颜色跟随主题配置色：第一名用主色，其余由主色向背景色逐级淡化。
+
 function UsageRanking(props) {
   var sel = props.sel;
   var money = typeof props.money === "function" ? props.money : null;
@@ -662,7 +657,7 @@ function TokenUsageCard(props) {
         return jsxs("button", { type: "button", className: "d-view-toggle" + (selected ? " d-is-active" : ""), "aria-pressed": selected,
           "data-tooltip": item[0] === "trend" ? "按时间查看各模型的 Token 用量，当天按小时、跨天按天" : undefined,
           title: item[0] === "trend" ? "模型走势：按时间查看各模型 Token 用量" : undefined,
-          onClick: function () { if (props.onTip) props.onTip(null); setView(item[0]); },
+          onClick: function () { if (props.onTip) props.onTip(null); setView(item[0]); if (item[0] === "sessions" && props.onSessionsNeeded) props.onSessionsNeeded(); },
           children: [svg(item[0] === "trend" ? VIEW_ICONS.trend : VIEW_ICONS.rank, 13), item[1]] }, item[0]);
       }) }),
     ] }),
@@ -1082,39 +1077,36 @@ function TipCard(props) {
 function Dialog(props) {
   var onClose = props.onClose;
   var st = useState;
-  var dataS = st(null); var data = dataS[0]; var setData = dataS[1];
-  var todayS = st(null); var today = todayS[0]; var setToday = todayS[1];
-  var calS = st(null); var cal = calS[0]; var setCal = calS[1];
-  var errS = st(""); var err = errS[0]; var setErr = errS[1];
-  var busyS = st(false); var busy = busyS[0]; var setBusy = busyS[1];
-  var pageS = st("detail"); var page = pageS[0]; var setPage = pageS[1];
-  var rangeS = st("today"); var range = rangeS[0]; var setRange = rangeS[1];
-  var customS = st(null); var custom = customS[0]; var setCustom = customS[1];
-  var selS = st(null); var sel = selS[0]; var setSel = selS[1];
-  var openS = st(""); var open = openS[0]; var setOpen = openS[1];
-  var dragS = st(""); var drag = dragS[0]; var setDrag = dragS[1];
-  var budgetS = st(null); var budgetInfo = budgetS[0]; var setBudgetInfo = budgetS[1];
-  var ratesErrorS = st(""); var ratesError = ratesErrorS[0]; var setRatesError = ratesErrorS[1];
+  var [data, setData] = st(null);
+  var [today, setToday] = st(null);
+  var [cal, setCal] = st(null);
+  var [err, setErr] = st("");
+  var [busy, setBusy] = st(false), [switching, setSwitching] = st(false);
+  var [page, setPage] = st("detail");
+  var [range, setRange] = st("today");
+  var [custom, setCustom] = st(null);
+  var [sel, setSel] = st(null);
+  var [open, setOpen] = st("");
+  var [drag, setDrag] = st("");
+  var [budgetInfo, setBudgetInfo] = st(null);
+  var [ratesError, setRatesError] = st("");
 
-  var themeS = st(readJSON("deepseekUsageTheme", { name: "blue" }).name || "blue"); var theme = themeS[0]; var setTheme = themeS[1];
-
-  var autoS = st(readRaw("deepseekUsageAutoRefresh", true) !== false); var auto = autoS[0]; var setAuto = autoS[1];
-  var tickS = st(Number(readRaw("deepseekUsageInterval", 30)) || 30); var interval = tickS[0]; var setTick = tickS[1];
-  var seatS = st(readSeat()); var seat = seatS[0]; var setSeat = seatS[1];
-  var fxS = st((readRates() || {}).usdToCny || DEFAULT_FX); var fx = fxS[0]; var setFx = fxS[1];
-  var fxEditS = st(false); var fxEdit = fxEditS[0]; var setFxEdit = fxEditS[1];
-  var fxDraftS = st(""); var fxDraft = fxDraftS[0]; var setFxDraft = fxDraftS[1];
+  var [theme, setTheme] = st(readJSON("deepseekUsageTheme", { name: "blue" }).name || "blue");
+  var [sessionsNeeded, setSessionsNeeded] = useState(false), viewPending = useRef(false);
+  var [auto, setAuto] = st(readRaw("deepseekUsageAutoRefresh", true) !== false);
+  var [interval, setTick] = st(Number(readRaw("deepseekUsageInterval", 30)) || 30);
+  var [seat, setSeat] = st(readSeat());
+  var [fx, setFx] = st((readRates() || {}).usdToCny || DEFAULT_FX);
+  var [fxEdit, setFxEdit] = st(false);
+  var [fxDraft, setFxDraft] = st("");
   var fxNow = fx;
 
-  var anchorS = st({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
-  var anchor = anchorS[0]; var setAnchor = anchorS[1];
-  var dimS = st("day"); var dim = dimS[0]; var setDim = dimS[1];
-  // 与 Token 卡一致：排行在前并作为默认视图。
-  var chartViewS = st(readSourceMode() === "local" ? "agg" : "trend"); var chartView = chartViewS[0]; var setChartView = chartViewS[1];
-  var detailS = st(null); var detail = detailS[0]; var setDetail = detailS[1];
-  var tdS = st({ start: null, end: null, view: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 } });
-  var td = tdS[0]; var setTd = tdS[1];
-  var tipS = st(null); var tip = tipS[0]; var setTip = tipS[1];
+  var [anchor, setAnchor] = st({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
+  var [dim, setDim] = st("day");
+  var [chartView, setChartView] = st(readSourceMode() === "local" ? "agg" : "trend");
+  var [detail, setDetail] = st(null);
+  var [td, setTd] = st({ start: null, end: null, view: { year: new Date().getFullYear(), month: new Date().getMonth() + 1 } });
+  var [tip, setTip] = st(null);
   function showTip(e, data) {
     if (!e) { setTip(null); return; }
     var popup = document.querySelector(".d-popup");
@@ -1130,24 +1122,28 @@ function Dialog(props) {
   }
   useEffect(function () { if (open) setTip(null); }, [open]);
   useEffect(function () { setTip(null); }, [page, dim, range, anchor.year, anchor.month]);
-  var requestRef = useRef(0);
-  var budgetRef = useRef(0);
-  var ratesSyncRef = useRef(0);
+  var requestRef = useRef(0), viewAbort = useRef(null);
+  var budgetRef = useRef(0), ratesSyncRef = useRef(0);
   var readyS = st(false); var ready = readyS[0];
-  var modeS = st(readSourceMode()); var mode = modeS[0]; var setMode = modeS[1];
+  var [mode, setMode] = st(readSourceMode());
   var sourceRef = useRef(null);
-  if (!sourceRef.current) sourceRef.current = createSourceSync(function () { return getBudget(); }, postBudget, function (value) {
-    acceptBudget(value); setMode(value.config.mode); writeSourceMode(value.config.mode);
+  if (!sourceRef.current) sourceRef.current = createSourceSync(function () { return getBudget(true); }, postBudget, function (value) {
+    acceptBudget(value); if (value.config.mode !== readSourceMode()) setSessionsNeeded(false); setMode(value.config.mode); writeSourceMode(value.config.mode);
   }, function () { window.alert("读取或切换数据源失败，未确认与宿主限额同步，请重试。"); });
   useEffect(function () { sourceRef.current.load(); return function () { sourceRef.current.close(); }; }, []);
-  function selectSource(next) { ++budgetRef.current; sourceRef.current.select(next); setOpen(""); }
+  function selectSource(next) {
+    setOpen("");
+    if (switching || next === mode) return;
+    ++budgetRef.current; setSwitching(true);
+    sourceRef.current.select(next).finally(function () { setSwitching(false); });
+  }
   useEffect(function () {
     function sync(event) { if (event.detail && event.detail.mode === mode && event.detail.key === todayKey(mode)) setToday(event.detail.value); }
     window.addEventListener("deepseek-usage:today", sync);
     return function () { window.removeEventListener("deepseek-usage:today", sync); };
   }, [mode]);
   useEffect(function () { setChartView(mode === "local" ? "agg" : "trend"); }, [mode]);
-  var localAvailS = st(true); var localAvail = localAvailS[0]; var setLocalAvail = localAvailS[1];
+  var [localAvail, setLocalAvail] = st(true);
 
   useEffect(function () { injectStyles(); }, []);
   useEffect(function () {
@@ -1178,50 +1174,50 @@ function Dialog(props) {
     document.addEventListener("pointerdown", down);
     return function () { document.removeEventListener("pointerdown", down); };
   }, [open, detail]);
-  useEffect(function () { loadView(false); }, [range, custom, anchor.year, anchor.month, page, dim, mode, ready]);
+  useEffect(function () { loadView(false); return function () { requestRef.current++; viewAbort.current && viewAbort.current.abort(); }; }, [range, custom, anchor.year, anchor.month, page, dim, mode, ready, sessionsNeeded]);
   useEffect(function () { loadToday(); }, [mode, ready]);
   useEffect(function () {
     setSel(null); setData(null); setCal(null); setToday(null); setDetail(null); setErr(""); setOpen("");
   }, [mode]);
-  useEffect(function () { setSel(null); setData(null); setCal(null); }, [range, custom, page, dim, anchor.year, anchor.month]);
+  useEffect(function () { setSel(null); setData(null); setCal(null); setErr(""); }, [range, custom, page, dim, anchor.year, anchor.month]);
   useEffect(function () {
     if (!auto) return;
-    var timer = window.setInterval(function () { loadView(false); loadToday(false); }, interval * 1000);
+    var timer = window.setInterval(function () { if (!viewPending.current) { loadView(false); loadToday(false); } }, interval * 1000);
     return function () { clearInterval(timer); };
-  }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode, ready]);
+  }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode, ready, sessionsNeeded]);
 
   function loadView(force) {
     if (!ready) return;
-    var id = requestRef.current + 1;
-    requestRef.current = id;
+    var id = ++requestRef.current;
+    if (viewAbort.current) viewAbort.current.abort();
+    var controller = new AbortController();
+    viewAbort.current = controller;
+    viewPending.current = true;
     setBusy(true);
+    var signal = controller.signal;
     var localMode = mode === "local";
     var suffix = force ? "&force=1" : "";
     var job;
     if (page === "calendar") { job = null; } else if (range === "custom" && custom) {
-      job = localMode
-        ? loadLocalRange(custom.from, custom.to, force)
-        : loadRange(custom.from, custom.to, force);
-    } else if (localMode) {
-      job = getJSON("/local?range=" + range + suffix + "&tz=" + TZ + "&scope=all" + ratesParam()).then(function (payload) {
-        return { days: payload.points || payload.days || [], balance: {}, granularity: payload.granularity || "day", local: payload };
-      });
+      job = loadRange(custom.from, custom.to, force, signal, localMode);
     } else {
-      var win = rangeDates(range);
-      job = getJSON("/official?range=" + range + suffix + "&tz=" + TZ).then(function (payload) {
-        return { days: payload.points || payload.days || [], balance: payload.balance || {}, granularity: payload.granularity || "day" };
+      job = getJSON((localMode ? "/local" : "/official") + "?range=" + range + suffix + "&tz=" + TZ + (localMode ? "&scope=all" + ratesParam() : ""), signal).then(function (p) {
+        return usageView(p, localMode);
       }).catch(function (e) {
-        if (e.status === 404 || e.status === 405) return loadRange(win.from, win.to);
+        if (!localMode && (e.status === 404 || e.status === 405)) {
+          var win = rangeDates(range);
+          return loadRange(win.from, win.to, force, signal);
+        }
         throw e;
       });
     }
-    if (!localMode && page !== "calendar") {
+    if (!localMode && page !== "calendar" && sessionsNeeded) {
       var sessionsQuery = range === "custom" && custom ? "from=" + custom.from + "&to=" + custom.to : "range=" + range;
-      var sessionsJob = getJSON("/local?" + sessionsQuery + "&tz=" + TZ + "&scope=all" + ratesParam())
-        .then(function (payload) { return (payload && payload.sessions) || []; })
-        .catch(function () { return []; });
+      var sessionsJob = getJSON("/local?" + sessionsQuery + "&tz=" + TZ + "&scope=all" + ratesParam(), signal)
+        .then(function (payload) { return { sessions: payload.sessions || [] }; })
+        .catch(function (e) { return { sessions: [], sessionError: usageError(e) }; });
       job = Promise.all([job, sessionsJob]).then(function (pair) {
-        return Object.assign({}, pair[0], { sessions: pair[1] });
+        return Object.assign({}, pair[0], pair[1]);
       });
     }
     if (page === "calendar") {
@@ -1229,20 +1225,20 @@ function Dialog(props) {
       var endMonth = dim === "month" ? 12 : dim === "week" ? startMonth + 5 : anchor.month;
       var calendarFrom = new Date(anchor.year, startMonth - 1, 1);
       var calendarTo = new Date(anchor.year, endMonth, 0);
-      job = localMode ? loadLocalRange(calendarFrom, calendarTo, force) : loadRange(calendarFrom, calendarTo, force);
+      job = loadRange(calendarFrom, calendarTo, force, signal, localMode);
     }
     return job.then(function (view) {
-      if (requestRef.current !== id) return;
-      var result = { days: normalizeDays(view.days), balance: view.balance, granularity: view.granularity, local: view.local,
+      if (requestRef.current !== id || signal.aborted) return;
+      var result = { days: normalizeDays(view.days), balance: view.balance, granularity: view.granularity, local: view.local, updatedAt: view.updatedAt || Date.now(), sessionError: view.sessionError,
         sessions: (view.local && view.local.sessions) || view.sessions || [] };
       if (page === "calendar") setCal(result); else setData(result);
       setErr("");
     }).catch(function (e) {
-      if (requestRef.current !== id) return;
-      if (page === "calendar") setCal(null); else setData(null);
-      setErr(e.status === 401 ? "未检测到 DeepSeek 账号，请先在 DeepSeek Harness 里登录。" : e.status === 503 ? "本地会话日志不可用：当前宿主没有提供 sessionPersistence。" : e.message || "加载失败");
+      if (requestRef.current !== id || signal.aborted) return;
+      if (e.status === 401) { setData(null); setCal(null); }
+      setErr(usageError(e));
     }).finally(function () {
-      if (requestRef.current === id) setBusy(false);
+      if (requestRef.current === id) { setBusy(false); viewPending.current = false; }
     });
   }
 
@@ -1257,7 +1253,7 @@ function Dialog(props) {
     writeJSON(SEAT_KEY, next);
     try { window.dispatchEvent(new Event("deepseek-usage:seat")); } catch (e) {  }
   }
-  function acceptBudget(value) { ++budgetRef.current; restoreRates(value); setFx((readRates() || {}).usdToCny || DEFAULT_FX); readyS[1](true); setBudgetInfo(value); notifySource(); }
+  function acceptBudget(value) { ++budgetRef.current; restoreRates(value); setFx((readRates() || {}).usdToCny || DEFAULT_FX); readyS[1](true); setBudgetInfo(value); notifySource(); if (value.status.pending && value.status.enabled) loadBudget(); }
   function loadBudget() {
     var id = ++budgetRef.current;
     getBudget().then(function (value) { if (id === budgetRef.current) acceptBudget(value); }).catch(function () { if (id === budgetRef.current) setBudgetInfo(null); });
@@ -1349,9 +1345,8 @@ function Dialog(props) {
     win = { from: iso(w.from), to: iso(w.to) };
   }
 
-  var seatCfg = seat;
-  var snap = seatOrder(seatCfg).filter(function (k) { return seatCfg[k] && seatCfg[k].on; }).map(function (k) {
-    var m = seatCfg[k] || defaultSeat[k];
+  var snap = seatOrder(seat).filter(function (k) { return seat[k] && seat[k].on; }).map(function (k) {
+    var m = seat[k] || defaultSeat[k];
     var value = seatValue(today, k);
     return { k: k, m: m, label: String(m.label || ""), value: value };
   });
@@ -1389,7 +1384,7 @@ function Dialog(props) {
                 className: "d-icon-btn",
                 type: "button",
                 "data-tooltip": "切换官方账单与本地会话统计",
-                "aria-label": "切换数据来源",
+                "aria-label": "切换数据来源", disabled: switching,
                 "aria-expanded": open === "mode" ? "true" : "false",
                 onClick: function () { setOpen(open === "mode" ? "" : "mode"); },
                 children: svg(P.swap, 16),
@@ -1401,7 +1396,7 @@ function Dialog(props) {
             ],
           }),
           jsx("button", {
-            className: "d-icon-btn" + (busy ? " d-spinning" : ""),
+            className: "d-icon-btn" + (busy || switching ? " d-spinning" : ""),
             type: "button",
             "data-tooltip": "立即重新获取用量数据",
             "aria-label": "立即刷新",
@@ -1584,8 +1579,6 @@ function Dialog(props) {
                          onKeyDown: function(e){if(e.key==="Enter")e.currentTarget.blur();},
                       }) : jsx("button", { type: "button", className: "d-fx-btn", onClick: function () { setFxDraft(String(fx)); setFxEdit(true); }, title: "点击修改 USD 兑 CNY 汇率", "data-tooltip": "点击修改汇率，按 Enter 或移开焦点保存", children: fx }),
                        jsx("span", { className: "d-fx-unit", children: "CNY" }),
-                      null,
-                      null,
                     ] }),
                     jsx("small", { className: "d-rate-description", children: "配置模型定价" }),
                     jsx("button", {
@@ -1872,7 +1865,7 @@ function Dialog(props) {
       budgetInfo && budgetInfo.status.enabled ? jsxs("div", { className: "d-budget-banner" + (budgetInfo.status.blocked ? " d-budget-banner-blocked" : ""), role: budgetInfo.status.blocked ? "alert" : "status", children: [jsx("span", { children: budgetLabel(budgetInfo) + (budgetIncomplete ? " · ⚠ 统计不完整，按已知用量判断限额" : "") }), jsx("button", { type: "button", className: "d-settings-link", onClick: function () { setOpen("settings:budget"); }, children: "管理限额" })] }) : null,
       ratesError ? jsx("p", { role: "alert", className: "d-budget-warning", children: ratesError }) : null,
       metricCards(sums, mode === "local" ? "本地用量合计" : "官方账单合计"),
-      jsx(TokenUsageCard, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip, official: mode !== "local", officialTokens: mode === "local" ? null : sums.tokens, sessions: data && data.sessions, fx: fxNow }),
+      jsx(TokenUsageCard, { days: days, sel: sel, models: models, hourly: hourly, onTip: showTip, official: mode !== "local", officialTokens: mode === "local" ? null : sums.tokens, sessions: data && data.sessions, onSessionsNeeded: function () { setSessionsNeeded(true); }, fx: fxNow }),
       jsxs("section", { className: "d-chart-section", "aria-label": "各模型消费金额", children: [
         jsxs("div", { className: "d-chart-heading", children: [
           jsxs("h2", { children: [icon(CARD_ICONS.spend, 16), jsx("span", { children: "各模型消费金额" })] }),
@@ -2129,11 +2122,22 @@ function Dialog(props) {
     ],
   });
 
+  var shown = page === "calendar" ? cal : data;
+  var notes = today?.error ? ["今日摘要：" + today.error] : [];
+  if (shown) {
+    if (shown.local?.coverage && !shown.local.coverage.complete) notes.push("统计不完整：部分日志缺失或不可读");
+    if (shown.local?.costMeta && !shown.local.costMeta.complete) notes.push("部分模型暂无费率，金额仅含已计价部分");
+    if (shown.sessionError) notes.push("本机会话排行不可用：" + shown.sessionError);
+  }
   var content = jsxs("section", {
     className: "d-popup-content",
     children: [
-      err ? jsx("div", { className: "d-chart-empty", children: err }) : null,
-      page === "detail" ? detailPage : calendarPage,
+      jsxs("div", { className: "d-data-status", "aria-busy": busy || switching, children: [
+        jsxs("span", { role: "status", children: [(switching ? "正在切换数据源… " : busy ? "正在刷新… " : ""), shown ? jsx("time", { children: "上次更新 " + new Date(shown.updatedAt).toLocaleString("zh-CN") }, shown.updatedAt) : null, (shown && notes.length ? " · " : "") + notes.join(" · ")] }),
+        err ? jsx("span", { role: "alert", children: err + (shown ? " 当前显示上次成功数据。" : "") }) : null,
+        err || shown?.sessionError || today?.error ? jsx("button", { type: "button", className: "d-settings-link", disabled: busy, onClick: function () { loadView(true); loadToday(true); }, children: "重试" }) : null,
+      ] }),
+      shown ? (page === "detail" ? detailPage : calendarPage) : null,
       jsx("div", { className: "d-popup-footer", children: jsx("span", { children: mode === "local" ? "本地 DSH 会话日志 · 实时 · 费用按当前费率估算" : "DeepSeek 官方数据 · 延迟约 5 分钟（GMT+8）" }) }),
     ],
   });
@@ -2215,18 +2219,10 @@ function Dialog(props) {
 
 
 function DeepSeekUsageSeat(props) {
-  var openS = useState(false);
-  var open = openS[0];
-  var setOpen = openS[1];
-  var cfgS = useState(readSeat());
-  var cfg = cfgS[0] || readSeat();
-  var setCfg = cfgS[1];
-  var modeS = useState(readSourceMode());
-  var mode = modeS[0];
-  var setMode = modeS[1];
-  var todayS = useState(null);
-  var today = todayS[0];
-  var setToday = todayS[1];
+  var [open, setOpen] = useState(false);
+  var [cfg, setCfg] = useState(readSeat());
+  var [mode, setMode] = useState(readSourceMode());
+  var [today, setToday] = useState(null);
   var revisionS = useState(0); var revision = revisionS[0];
   var readyS = useState(false);
   var wide = props.wide !== false;
@@ -2288,6 +2284,7 @@ function DeepSeekUsageSeat(props) {
     children: [
       jsx("button", {
         className: "d-seat",
+        title: today?.error,
         type: "button",
         "aria-label": mode === "local" ? "DeepSeek Usage 本地用量" : "DeepSeek Usage 用量与余额",
         onClick: function () { setOpen(true); },

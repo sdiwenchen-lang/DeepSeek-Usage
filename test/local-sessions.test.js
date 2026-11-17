@@ -74,6 +74,18 @@ test("缺失 usage 仅影响该查询日期的完整性", async () => {
   assert.equal(yesterday.coverage.complete, false);
 });
 
+test("覆盖率会按查询日期与 provider scope 统计会话", async () => {
+  const local = source([
+    { header: { id: "old" }, events: [message(1, "2026-11-05T01:00:00Z", "priced-one", 10)] },
+    { header: { id: "deepseek" }, events: [{ ...message(1, "2026-11-06T01:00:00Z", "priced-one", 10), data: { turn: 0, step: 1, message: { source: { provider: "deepseek-official", model: "priced-one" } }, usage: { inputTokens: 10, outputTokens: 0 } } }] },
+    { header: { id: "other" }, events: [{ ...message(1, "2026-11-06T01:00:00Z", "priced-one", 10), data: { turn: 0, step: 1, message: { source: { provider: "custom", model: "priced-one" } }, usage: { inputTokens: 10, outputTokens: 0 } } }] },
+  ]);
+  const day = await local.query({ ...query, scope: "deepseek" });
+  assert.equal(day.coverage.sessions, 1);
+  assert.equal(day.coverage.sessionsWithUsage, 1);
+  assert.equal(day.totals.tokens, 10);
+});
+
 test("当前宿主失败请求的 stream usage 计费，重试成功不覆盖此前消耗", () => {
   const time = at("2026-11-06T01:00:00Z");
   const record = (input) => ({ type: "chunk", time, chunk: { type: "usage", usage: { inputTokens: input, outputTokens: 5 } } });

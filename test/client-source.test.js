@@ -108,3 +108,67 @@ test("failed initial reads report failure without POST; closing ignores late res
   await loading;
   assert.deepEqual(closing.accepted, []);
 });
+
+
+test("source selection shows feedback immediately, prevents duplicate clicks and clears it after saving", async () => {
+  const job = deferred();
+  const switches = [], menus = [], writes = [];
+  const context = vm.createContext({
+    mode: "official", switching: false, budgetRef: { current: 0 },
+    setOpen: value => menus.push(value),
+    setSwitching(value) { context.switching = value; switches.push(value); },
+    sourceRef: { current: { select(mode) { writes.push(mode); return job.promise; } } },
+  });
+  const start = source.indexOf("  function selectSource(next)");
+  vm.runInContext(source.slice(start, source.indexOf("  useEffect(", start)), context);
+  context.selectSource("local");
+  assert.deepEqual(switches, [true], "show loading before persistence resolves");
+  assert.deepEqual(writes, ["local"]);
+  context.selectSource("official");
+  assert.equal(writes.length, 1, "ignore repeat input while switching");
+  job.resolve(value("local"));
+  await tick();
+  assert.deepEqual(switches, [true, false]);
+  assert.equal(context.budgetRef.current, 1);
+  context.selectSource("official");
+  assert.equal(writes.length, 1, "selecting the active source performs no save");
+});
+
+test("a rejected switch clears loading so the user can retry", async () => {
+  const h = harness();
+  await h.sync.load();
+  const switches = [];
+  const context = vm.createContext({ mode: "official", switching: false, budgetRef: { current: 0 },
+    setOpen() {}, setSwitching(value) { context.switching = value; switches.push(value); }, sourceRef: { current: h.sync } });
+  const start = source.indexOf("  function selectSource(next)");
+  vm.runInContext(source.slice(start, source.indexOf("  useEffect(", start)), context);
+  context.selectSource("local");
+  await tick();
+  h.writes[0].reject(new Error("disk full"));
+  await tick();
+  assert.deepEqual(switches, [true, false]);
+  assert.deepEqual(h.accepted, ["official", "official"]);
+  assert.equal(h.failures.length, 1);
+});
+
+
+test("light budget acceptance makes the panel ready before the enabled guard status completes", () => {
+  const start = source.indexOf("  function acceptBudget(value)");
+  const fragment = source.slice(start, source.indexOf("  function loadBudget()", start));
+  const ready = [], accepted = [], loads = [];
+  const context = vm.createContext({
+    budgetRef: { current: 0 }, restoreRates() {}, readRates: () => ({ usdToCny: 7 }),
+    DEFAULT_FX: 6.7, setFx() {}, readyS: [false, value => ready.push(value)],
+    setBudgetInfo: value => accepted.push(value), notifySource() {}, loadBudget: () => loads.push("load"),
+  });
+  vm.runInContext(fragment, context);
+  const pending = { config: { mode: "local" }, status: { pending: true, enabled: true } };
+  context.acceptBudget(pending);
+  assert.deepEqual(ready, [true]);
+  assert.equal(accepted[0], pending);
+  assert.deepEqual(loads, ["load"]);
+  context.acceptBudget({ ...pending, status: { pending: false, enabled: true } });
+  assert.equal(loads.length, 1, "a completed status must not start an endless read loop");
+  context.acceptBudget({ ...pending, status: { pending: true, enabled: false } });
+  assert.equal(loads.length, 1, "disabled limits need no additional scan");
+});

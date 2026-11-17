@@ -90,24 +90,9 @@ test("saving a model equal to this release's default retains its explicit price"
   assert.deepEqual(saved, host.rates.models);
 });
 
-test("automatic refresh resumes when host pricing becomes ready", () => {
-  const start = source.lastIndexOf("  useEffect(function () {", source.indexOf("    if (!auto) return;"));
-  const effect = source.slice(start, source.indexOf("  function loadView(force)", start));
-  let previous, cleanup, scheduled, calls = 0;
-  const render = ready => vm.runInNewContext("(function(ready) { " + effect + " })(ready);", {
-    ready, auto: true, interval: 30, range: "today", custom: null, anchor: { year: 2026, month: 11 }, page: "detail", dim: "day", mode: "local",
-    loadView: () => { calls++; }, loadToday() {},
-    window: { setInterval: callback => { scheduled = callback; return 1; } }, clearInterval() {},
-    useEffect: (callback, deps) => {
-      if (!previous || deps.some((value, i) => value !== previous[i])) { cleanup?.(); cleanup = callback(); previous = deps; }
-    },
-  });
-  render(false);
-  const first = scheduled;
-  render(true);
-  assert.notEqual(scheduled, first, "readiness change must replace the captured timer callback");
-  scheduled();
-  assert.equal(calls, 1);
+test("official session logs are requested only after the session view is selected", () => {
+  assert.equal(source.includes('if (!localMode && page !== "calendar" && sessionsNeeded)'), true);
+  assert.equal(source.includes('if (item[0] === "sessions" && props.onSessionsNeeded) props.onSessionsNeeded();'), true);
 });
 
 

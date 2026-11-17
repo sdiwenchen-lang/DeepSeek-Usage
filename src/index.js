@@ -18,6 +18,7 @@
  * @module deepseek-usage
  */
 
+import { symbols } from "@deepseek-ai/cordis";
 import { ACCOUNT_RECORD_KEY, createAccountSource } from "./account.js";
 import { createApiClient } from "./apiclient.js";
 import { createBudget, createBudgetStore } from "./budget.js";
@@ -33,6 +34,9 @@ export const inject = ["credentials"];
 
 /** 可选服务：webServer / httpServer（在其中之一就绪时注册端点）/ commands / 本地会话日志。 */
 export const optional = ["webServer", "httpServer", "commands", "sessionPersistence", "configEditor"];
+
+// Config saves restart this plugin. Keep only folded usage, scoped to the host log service.
+const localStates = new WeakMap();
 
 /**
  * 可配置项（对齐 cordis.patch.yml）。
@@ -65,8 +69,25 @@ export function apply(ctx, config = {}) {
   } catch {
     persistence = undefined;
   }
+  let states;
+  if (persistence) {
+    const service = persistence[symbols.original] ?? persistence;
+    const maxSessions = config.local?.maxSessions ?? 5_000;
+    let shared = localStates.get(service);
+    if (!shared || shared.maxSessions !== maxSessions) {
+      shared = { maxSessions, states: new Map() };
+      localStates.set(service, shared);
+    }
+    states = shared.states;
+    // Revalidate revisions/deletions after reload without rereading unchanged logs.
+    for (const state of states.values()) {
+      state.lastSweepAt = 0;
+      state.revision = (state.revision ?? 0) + 1;
+    }
+  }
   const local = createLocalSource({
     persistence,
+    states,
     logger,
     config: config.local ?? {},
   });
@@ -104,7 +125,6 @@ export function apply(ctx, config = {}) {
     api.dispose();
     account.invalidate();
     cache.clear();
-    local.clear();
   });
 }
 

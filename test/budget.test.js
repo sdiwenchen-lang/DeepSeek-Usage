@@ -287,3 +287,23 @@ test("a mode-only save from an older instance cannot overwrite newer limits or o
   assert.deepEqual(stored.local, { extra: true });
   assert.equal(result.config.cny.limit, 99);
 });
+
+
+test("source-only saves return persisted config without querying slow local or official usage", { timeout: 1000 }, async () => {
+  const queries = [];
+  const storage = store();
+  const budget = createBudget({ initial: config(100, 1, "official"), store: storage,
+    local: { query() { queries.push("local"); return new Promise(() => {}); } },
+    official: { usage() { queries.push("official"); return new Promise(() => {}); } },
+  });
+  for (const mode of ["local", "official"]) {
+    const value = await budget.save({ mode });
+    assert.equal(storage.value.mode, mode);
+    assert.equal(value.config.mode, mode);
+    assert.equal(value.config.tokens.limit, 100);
+    assert.equal(value.status.mode, mode);
+    assert.equal(value.status.pending, true);
+    assert.equal(value.status.tokens, null);
+  }
+  assert.deepEqual(queries, []);
+});

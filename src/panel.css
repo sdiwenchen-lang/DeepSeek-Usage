@@ -1481,8 +1481,20 @@ display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--
 width: 8px; height: 8px; flex: 0 0 8px; border-radius: 3px;
 }
 
+.d-usage .d-data-status {
+ display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 0 12px;
+ color: var(--d-muted); font: 400 13px/1.6 var(--d-font-body); overflow-wrap: anywhere;
+}
+.d-usage .d-data-status [role="alert"] { color: var(--d-fg); }
+.d-usage .d-data-status span { min-width: 0; }
+.d-usage .d-data-status time {
+ display: inline-block; font-variant-numeric: tabular-nums;
+ animation: d-update-time 240ms ease-out;
+}
+@keyframes d-update-time { from { opacity: .4; } to { opacity: 1; } }
+
 .d-usage .d-chart-empty {
-padding: 48px 16px; text-align: center; color: var(--d-muted); font-size: 13px;
+ padding: 48px 16px; text-align: center; color: var(--d-muted); font-size: 13px;
 }
 
 .d-usage .d-mini-chart-grid {

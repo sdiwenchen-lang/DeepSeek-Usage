@@ -180,6 +180,7 @@ function aggregate(state, options) {
  *     open?: Function, readFrom?: Function
  *   },
  *   logger?: any,
+ *   states?: Map<number, object>,
  *   config?: {
  *     officialProviders?: string[],
  *     sweepTtlMs?: number,
@@ -197,7 +198,7 @@ export function createLocalSource(deps = {}) {
   const pricing = createPricing(config.pricing ?? {});
 
   /** tz -> { sessions, lastSweepAt, failed, ... } */
-  const byTz = new Map();
+  const byTz = deps.states ?? new Map();
 
   function stateFor(tz) {
     let state = byTz.get(tz);
@@ -299,11 +300,16 @@ export function createLocalSource(deps = {}) {
 
   async function ensureFresh(tz, force) {
     const state = stateFor(tz);
+    const revision = state.revision ?? 0;
+    if (state.sweeping !== null) {
+      const result = await state.sweeping;
+      return state.lastSweepAt === 0 ? ensureFresh(tz, force) : result;
+    }
     if (!force && state.lastSweepAt > 0 && Date.now() - state.lastSweepAt < ttlMs) {
       return state;
     }
-    if (state.sweeping !== null) return state.sweeping;
     state.sweeping = doSweep(state, tz).finally(() => {
+      if (revision !== (state.revision ?? 0)) state.lastSweepAt = 0;
       state.sweeping = null;
     });
     return state.sweeping;
@@ -313,22 +319,38 @@ export function createLocalSource(deps = {}) {
     let missingUsage = 0;
     let sessionsWithUsage = 0;
     let sessionsWithSubagent = 0;
+    let sessionsInRange = 0;
     let firstAt = null;
     let lastAt = null;
     for (const session of state.sessions.values()) {
+      const hoursInRange = new Set();
+      for (const [hour, routes] of session.hours) {
+        const date = hour.slice(0, 10);
+        if ((from && date < from) || (to && date > to)) continue;
+        for (const [route, buckets] of routes) {
+          const { provider } = parseRouteKey(route);
+          if (scope !== "all" && !officialProviders.has(provider)) continue;
+          if (buckets.requests > 0) hoursInRange.add(hour);
+        }
+      }
+      if (hoursInRange.size > 0) {
+        sessionsInRange += 1;
+        sessionsWithUsage += 1;
+        if (session.header?.parentSession !== undefined || session.header?.origin === "subagent") sessionsWithSubagent += 1;
+        for (const hour of hoursInRange) {
+          const at = Date.parse(hour + ":00:00Z") - tz * 1000;
+          if (firstAt === null || at < firstAt) firstAt = at;
+          if (lastAt === null || at + 3_599_999 > lastAt) lastAt = at + 3_599_999;
+        }
+      }
+      // Missing usage has no provider/model metadata, so it conservatively affects every scope.
       for (const [hour, count] of Object.entries(session.missingUsageHours ?? {})) {
         const date = hour.slice(0, 10);
         if ((!from || date >= from) && (!to || date <= to)) missingUsage += count;
       }
-      if (session.samples > 0) sessionsWithUsage += 1;
-      if (session.header?.parentSession !== undefined || session.header?.origin === "subagent") {
-        sessionsWithSubagent += 1;
-      }
-      if (session.firstAt !== null && (firstAt === null || session.firstAt < firstAt)) firstAt = session.firstAt;
-      if (session.lastAt !== null && (lastAt === null || session.lastAt > lastAt)) lastAt = session.lastAt;
     }
     return {
-      sessions: state.sessions.size,
+      sessions: sessionsInRange,
       sessionsWithUsage,
       missingUsage,
       complete: state.available && !state.error && !state.failed && !state.truncated && missingUsage === 0,

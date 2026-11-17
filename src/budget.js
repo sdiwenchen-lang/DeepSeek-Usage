@@ -163,7 +163,8 @@ export function createBudget({ local, official, pricing = local?.pricing, initia
       config = persisted ? validateBudgetConfig({ mode: persisted.mode, tokens: persisted.tokens, cny: persisted.cny }) : nextConfig;
       rates = effective(persisted?.rates ?? nextRates);
       ratesSaved = ratesSaved || supplied !== undefined || persisted?.rates !== undefined;
-      return read();
+      // Source selection commits before any potentially slow usage scan.
+      return read({ withStatus: next !== undefined || supplied !== undefined });
     });
     saving = operation.catch(() => {});
     return operation;
