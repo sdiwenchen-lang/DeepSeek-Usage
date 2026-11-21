@@ -217,7 +217,7 @@ function todayLoad(mode, force) {
   if (todayController) todayController.abort();
   todayController = new AbortController();
   var path = mode === "local" ? "/local?range=today&tz=" + TZ + "&scope=all" + ratesParam() : "/official?range=today&tz=" + TZ;
-  var p = getJSON(path, todayController.signal).then(function (payload) {
+  var p = getJSON(path + (force ? "&force=1" : ""), todayController.signal).then(function (payload) {
     var rows = (payload.points && payload.points.length ? payload.points : payload.days) || [];
     var value = total(rows, null);
     if (seq === TODAY.seq) { TODAY = { key: key, value: value, at: Date.now(), promise: null, seq: seq }; todayEmit(mode, value, key); }
@@ -946,29 +946,35 @@ function budgetLabel(info) {
   var source = status.mode === "local" ? "本地" : "官方";
   return status.blocked ? "已达到每日限额 · " + source : status.enabled ? "每日限额已启用 · " + source : "每日限额未启用";
 }
-function budgetConfigFromDraft(draft, mode) {
-  var config = { mode: mode === "local" ? "local" : "official" };
-  for (var key of ["tokens", "cny"]) {
-    var number = Number(draft[key]);
-    if (!Number.isFinite(number) || number < 0 || key === "tokens" && !Number.isSafeInteger(number)) {
-      throw new Error(key === "tokens" ? "Token 须为非负整数" : "消费须为非负金额");
-    }
-    config[key] = { enabled: number > 0, limit: number };
-  }
-  return config;
+function budgetLimit(draft, key) {
+  var number = Number(draft[key]);
+  if (key === "tokens") {
+    var unit = Number(draft.tokenUnit);
+    if (![1e8, 1e7, 1e6].includes(unit)) throw new Error("请选择亿、千万或百万单位");
+    if (number > 999) throw new Error("Token 上限每种单位最多 999");
+    if (!Number.isFinite(number) || number < 0) throw new Error("请输入有效的非负数");
+    var scaled = number * unit;
+    number = Math.round(scaled);
+    if (Math.abs(scaled - number) > 0.000002 || scaled > 0 && number === 0) throw new Error("Token 上限须对应整数 Token");
+  } else if (!Number.isFinite(number) || number < 0) throw new Error("请输入有效的非负数");
+  return { enabled: number > 0, limit: number };
 }
-function budgetDraftValues(config) {
+function budgetDraftValues(config, preferredUnit) {
+  var limit = config.tokens.enabled ? config.tokens.limit : 0;
+  var unit = [1e8, 1e7, 1e6].includes(Number(preferredUnit)) ? Number(preferredUnit) : limit >= 1e8 ? 1e8 : limit >= 1e7 ? 1e7 : 1e6;
   return {
-    tokens: config.tokens.enabled ? String(config.tokens.limit) : "",
+    tokens: config.tokens.enabled ? String(limit / unit) : "",
+    tokenUnit: String(unit),
     cny: config.cny.enabled ? Number(config.cny.limit).toFixed(2) : "",
   };
 }
 function createBudgetSaver(write, initial, mode) {
   var saved = initial, queue = Promise.resolve();
   var activeMode = mode === "local" ? "local" : initial && initial.mode === "local" ? "local" : "official";
-  return function (draft) {
-    var config = budgetConfigFromDraft(draft, activeMode);
+  return function (draft, key) {
+    var limit = budgetLimit(draft, key);
     var operation = queue.catch(function () {}).then(function () {
+      var config = Object.assign({}, saved, { mode: activeMode, [key]: limit });
       if (JSON.stringify(config) === JSON.stringify(saved)) return null;
       return write({ config: config }).then(function (value) { saved = value.config; return value; });
     });
@@ -980,6 +986,7 @@ function createBudgetSaver(write, initial, mode) {
 function BudgetSettings(props) {
   var [draft, setDraft] = useState(null), [info, setInfo] = useState(null), [edit, setEdit] = useState("");
   var [error, setError] = useState("");
+  var [saved, setSaved] = useState(false);
   var latest = useRef(null), saver = useRef(null), revision = useRef(0), alive = useRef(true), loadSeq = useRef(0);
   useEffect(function () {
     alive.current = true;
@@ -994,22 +1001,23 @@ function BudgetSettings(props) {
     }).catch(function () { if (alive.current) setError("加载失败，请重新打开设置"); });
     return function () { alive.current = false; };
   }, []);
-  function save(event) {
+  function save(key, input) {
     if (!latest.current || !info || !info.status.storageAvailable) return;
-    if (event && event.currentTarget.validity && !event.currentTarget.validity.valid) {
-      var cnyInput = event.currentTarget.getAttribute("step") === "0.01";
-      setError(cnyInput && event.currentTarget.validity.stepMismatch ? "消费上限最多两位小数" : "请输入有效的非负数");
+    if (key === "tokens" && tokenOver) return;
+    if (!input.validity.valid) {
+      setError(input.validity.stepMismatch ? "消费上限最多两位小数" : "请输入有效的非负数");
       return;
     }
     var id = ++revision.current;
     ++loadSeq.current;
-    setError("");
-    var operation;
-    try { operation = saver.current(latest.current); }
+    setError(""); setSaved(false);
+    var operation, submitted = latest.current;
+    try { operation = saver.current(submitted, key); }
     catch (failure) { setError(failure.message); return; }
     operation.then(function (value) {
+      if (alive.current && id === revision.current) setSaved(true);
       if (!value) return;
-      var nextValues = budgetDraftValues(value.config);
+      var nextValues = budgetDraftValues(value.config, submitted.tokenUnit);
       if (alive.current && id === revision.current) { latest.current = nextValues; setDraft(nextValues); setInfo(value); }
       props.onSaved(value);
     }).catch(function (failure) {
@@ -1028,8 +1036,8 @@ function BudgetSettings(props) {
     if (limits.cny.enabled) usage.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)) + " / " + fmtMoney(limits.cny.limit));
   }
   var optimistic = false;
-  if (pending && props.today && draft) {
-    var cnyLimit = Number(draft.cny) || 0, tokenLimit = Number(draft.tokens) || 0;
+  if (pending && props.today && limits) {
+    var cnyLimit = limits.cny.enabled && limits.cny.limit, tokenLimit = limits.tokens.enabled && limits.tokens.limit;
     if (cnyLimit > 0 && props.today.cost != null && props.today.cost >= cnyLimit) optimistic = true;
     if (tokenLimit > 0 && props.today.tokens != null && props.today.tokens >= tokenLimit) optimistic = true;
   }
@@ -1038,26 +1046,38 @@ function BudgetSettings(props) {
     if (limits.cny.enabled && props.today.cost != null) usage.push("消费 " + fmtMoney(props.today.cost) + " / " + fmtMoney(limits.cny.limit));
   }
   var blocked = !!(status && !pending && status.blocked) || optimistic;
+  var tokenOver = !!(draft && String(draft.tokens).trim() !== "" && Number(draft.tokens) > 999);
   var usageSource = status && status.mode === "official" ? "官方" : "本机";
+  function change(field, event) {
+    latest.current = Object.assign({}, latest.current, { [field]: event.target.value });
+    ++revision.current; setDraft(latest.current); setError(""); setSaved(false);
+  }
+  function enter(event) {
+    if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+  }
   return jsxs("div", { className: "d-budget-settings", children: [
-    draft ? [["tokens", "Token 上限", "Tokens"], ["cny", "消费上限", "CNY"]].map(function (item) {
-      var key = item[0], value = draft[key];
-      return jsxs("div", { className: "d-fx-row", children: [
-        jsx("span", { className: "d-fx-label", children: item[1] }),
-        edit === key ? jsx("input", { className: "d-fx-input", type: "number", min: "0", step: key === "tokens" ? "1" : "0.01", inputMode: key === "tokens" ? "numeric" : "decimal", autoFocus: true, "aria-label": "每日" + item[1], placeholder: "不限", disabled: !info.status.storageAvailable, value: value,
-          onChange: function (event) { var values = Object.assign({}, latest.current, { [key]: event.target.value }); latest.current = values; ++revision.current; setDraft(values); setError(""); },
-          onBlur: function (event) { setEdit(""); save(event); },
-          onKeyDown: function (event) { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } } }) :
-          jsx("button", { type: "button", className: "d-fx-btn", disabled: !info.status.storageAvailable, title: "点击修改" + item[1], onClick: function () { setEdit(key); }, children: value === "" ? "不限" : key === "tokens" ? fmtK(Number(value)) : fmtMoney(Number(value)) }),
-        jsx("span", { className: "d-fx-unit", children: item[2] }),
+    draft ? ["tokens", "cny"].map(function (key) {
+      var token = key === "tokens", label = token ? "Token 上限" : "消费上限", disabled = !info.status.storageAvailable;
+      return jsxs("div", { className: "d-fx-row", onBlur: token ? function (event) {
+        if (!event.currentTarget.contains(event.relatedTarget)) save(key, event.currentTarget.querySelector("input"));
+      } : undefined, children: [
+        jsx("span", { className: "d-fx-label", children: label }),
+        token || edit === key ? jsx("input", { className: "d-fx-input" + (token && tokenOver ? " d-fx-invalid" : ""), type: "number", min: 0, max: token ? 999 : undefined,
+          step: token ? "any" : "0.01", inputMode: "decimal", autoFocus: !token, "aria-label": "每日" + label, placeholder: "不限", disabled: disabled, value: draft[key],
+          "aria-invalid": token && tokenOver ? true : undefined, onChange: function (event) { change(key, event); }, onBlur: token ? undefined : function (event) { setEdit(""); save(key, event.currentTarget); }, onKeyDown: enter }) :
+          jsx("button", { type: "button", className: "d-fx-btn", disabled: disabled, title: "点击修改" + label, onClick: function () { setEdit(key); }, children: draft.cny === "" ? "不限" : fmtMoney(Number(draft.cny)) }),
+        token ? jsx("select", { className: "d-settings-select d-token-limit-unit", "aria-label": "Token 上限单位", disabled: disabled, value: draft.tokenUnit,
+          onChange: function (event) { change("tokenUnit", event); }, children: ["亿", "千万", "百万"].map(function (unit, i) { return jsx("option", { value: 10 ** (8 - i), children: unit }, unit); }) }) :
+          jsx("span", { className: "d-fx-unit", children: "CNY" }),
       ] }, key);
     }) : null,
+    tokenOver ? jsx("small", { className: "d-budget-invalid", role: "alert", children: "每种单位最多 999，超出不会保存" }) : null,
     jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
       blocked
         ? jsx("b", { children: "已达到每日限额，后续调用已熔断；次日 00:00 或提高限额后恢复" })
         : jsx("span", { children: "达到上限熔断所有调用，按当前本地/官方模式计算。" + (incomplete ? "统计不完整，已知用量达限仍熔断。" : "") }),
     ] }),
-    error || (info && !info.status.storageAvailable) ? jsx("span", { className: "d-budget-inline-status" + (error ? " d-budget-warning" : ""), role: error ? "alert" : "status", title: error || (info ? budgetLabel(info) : ""), children: error || "宿主配置存储不可用" }) : null,
+    error || saved || (info && !info.status.storageAvailable) ? jsx("span", { className: "d-budget-inline-status" + (error ? " d-budget-warning" : ""), role: error ? "alert" : "status", title: error || (info ? budgetLabel(info) : ""), children: error || (saved ? "每日限额已保存" : "宿主配置存储不可用") }) : null,
   ] });
 }
 
@@ -1072,6 +1092,23 @@ function TipCard(props) {
       ] }, i);
     }) }) : null,
   ] });
+}
+
+function updateTimeText(v) { return "上次更新 " + new Date(v).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }); }
+function UpdatedTime(p) {
+  var t = updateTimeText(p.value), [v, setV] = useState([t, ""]), shown = v[0], old = shown === t ? v[1] : "";
+  useEffect(function () {
+    if (v[0] === t) return;
+    setV([t, v[0]]);
+    var timer = window.setTimeout(function () { setV([t, ""]); }, 700);
+    return function () { window.clearTimeout(timer); };
+  }, [t]);
+  return jsx("time", { className: "d-update-time", "aria-label": shown, children: shown.split("").map(function (c, i) {
+    var o = old[i], digit = /\d/.test(c), flip = digit && o && o !== c;
+    return jsx("span", { className: "d-update-char" + (flip ? " d-update-flip" : "") + (digit ? " d-update-digit" : ""), "aria-hidden": true, children: flip ? [
+      jsx("span", { className: "d-update-old", children: o }, "o"), jsx("span", { className: "d-update-new", children: c }, "n"),
+    ] : c }, i + ":" + c);
+  }) });
 }
 
 function Dialog(props) {
@@ -1181,10 +1218,10 @@ function Dialog(props) {
   }, [mode]);
   useEffect(function () { setSel(null); setData(null); setCal(null); setErr(""); }, [range, custom, page, dim, anchor.year, anchor.month]);
   useEffect(function () {
-    if (!auto) return;
-    var timer = window.setInterval(function () { if (!viewPending.current) { loadView(false); loadToday(false); } }, interval * 1000);
+    if (!auto || !ready) return;
+    var timer = window.setInterval(function () { if (!viewPending.current && !switching) { loadView(true); todayLoad(mode, true); } }, interval * 1000);
     return function () { clearInterval(timer); };
-  }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode, ready, sessionsNeeded]);
+  }, [auto, interval, range, custom, anchor.year, anchor.month, page, dim, mode, ready, sessionsNeeded, switching]);
 
   function loadView(force) {
     if (!ready) return;
@@ -1195,37 +1232,37 @@ function Dialog(props) {
     viewPending.current = true;
     setBusy(true);
     var signal = controller.signal;
-    var localMode = mode === "local";
+    var isLocal = mode === "local";
     var suffix = force ? "&force=1" : "";
     var job;
     if (page === "calendar") { job = null; } else if (range === "custom" && custom) {
-      job = loadRange(custom.from, custom.to, force, signal, localMode);
+      job = loadRange(custom.from, custom.to, force, signal, isLocal);
     } else {
-      job = getJSON((localMode ? "/local" : "/official") + "?range=" + range + suffix + "&tz=" + TZ + (localMode ? "&scope=all" + ratesParam() : ""), signal).then(function (p) {
-        return usageView(p, localMode);
+      job = getJSON((isLocal ? "/local" : "/official") + "?range=" + range + suffix + "&tz=" + TZ + (isLocal ? "&scope=all" + ratesParam() : ""), signal).then(function (p) {
+        return usageView(p, isLocal);
       }).catch(function (e) {
-        if (!localMode && (e.status === 404 || e.status === 405)) {
+        if (!isLocal && (e.status === 404 || e.status === 405)) {
           var win = rangeDates(range);
           return loadRange(win.from, win.to, force, signal);
         }
         throw e;
       });
     }
-    if (!localMode && page !== "calendar" && sessionsNeeded) {
-      var sessionsQuery = range === "custom" && custom ? "from=" + custom.from + "&to=" + custom.to : "range=" + range;
-      var sessionsJob = getJSON("/local?" + sessionsQuery + "&tz=" + TZ + "&scope=all" + ratesParam(), signal)
+    if (!isLocal && page !== "calendar" && sessionsNeeded) {
+      var query = range === "custom" && custom ? "from=" + custom.from + "&to=" + custom.to : "range=" + range;
+      var logJob = getJSON("/local?" + query + "&tz=" + TZ + "&scope=all" + ratesParam() + suffix, signal)
         .then(function (payload) { return { sessions: payload.sessions || [] }; })
         .catch(function (e) { return { sessions: [], sessionError: usageError(e) }; });
-      job = Promise.all([job, sessionsJob]).then(function (pair) {
+      job = Promise.all([job, logJob]).then(function (pair) {
         return Object.assign({}, pair[0], pair[1]);
       });
     }
     if (page === "calendar") {
       var startMonth = dim === "month" ? 1 : dim === "week" ? (anchor.month <= 6 ? 1 : 7) : anchor.month;
       var endMonth = dim === "month" ? 12 : dim === "week" ? startMonth + 5 : anchor.month;
-      var calendarFrom = new Date(anchor.year, startMonth - 1, 1);
-      var calendarTo = new Date(anchor.year, endMonth, 0);
-      job = loadRange(calendarFrom, calendarTo, force, signal, localMode);
+      var from = new Date(anchor.year, startMonth - 1, 1);
+      var to = new Date(anchor.year, endMonth, 0);
+      job = loadRange(from, to, force, signal, isLocal);
     }
     return job.then(function (view) {
       if (requestRef.current !== id || signal.aborted) return;
@@ -2125,15 +2162,22 @@ function Dialog(props) {
   var shown = page === "calendar" ? cal : data;
   var notes = today?.error ? ["今日摘要：" + today.error] : [];
   if (shown) {
-    if (shown.local?.coverage && !shown.local.coverage.complete) notes.push("统计不完整：部分日志缺失或不可读");
-    if (shown.local?.costMeta && !shown.local.costMeta.complete) notes.push("部分模型暂无费率，金额仅含已计价部分");
+    var coverage = shown.local?.coverage;
+    if (coverage?.error) notes.push("本地日志扫描失败，请重试");
+    if (coverage?.failed > 0) notes.push(coverage.failed + " 个会话日志读取失败");
+    if (coverage?.truncated) notes.push("会话数量超过扫描上限，仅统计部分会话");
+    if (shown.local?.costMeta?.unpricedTokens > 0) notes.push("部分模型暂无费率，金额仅含已计价部分");
     if (shown.sessionError) notes.push("本机会话排行不可用：" + shown.sessionError);
   }
   var content = jsxs("section", {
     className: "d-popup-content",
     children: [
       jsxs("div", { className: "d-data-status", "aria-busy": busy || switching, children: [
-        jsxs("span", { role: "status", children: [(switching ? "正在切换数据源… " : busy ? "正在刷新… " : ""), shown ? jsx("time", { children: "上次更新 " + new Date(shown.updatedAt).toLocaleString("zh-CN") }, shown.updatedAt) : null, (shown && notes.length ? " · " : "") + notes.join(" · ")] }),
+        jsxs("span", { role: "status", children: [
+          shown ? jsx(UpdatedTime, { value: shown.updatedAt }) : null,
+          switching || busy ? jsx("span", { className: "d-refresh-state", children: (shown ? " · " : "") + (switching ? "正在切换数据源…" : "正在刷新…") }) : null,
+          (shown && notes.length ? " · " : "") + notes.join(" · "),
+        ] }),
         err ? jsx("span", { role: "alert", children: err + (shown ? " 当前显示上次成功数据。" : "") }) : null,
         err || shown?.sessionError || today?.error ? jsx("button", { type: "button", className: "d-settings-link", disabled: busy, onClick: function () { loadView(true); loadToday(true); }, children: "重试" }) : null,
       ] }),

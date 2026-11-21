@@ -49,7 +49,9 @@ export function createPricer(opts = {}) {
     if (hidden.has(raw)) continue;
     if (byId.has(raw)) throw new TypeError(`duplicate pricing model: ${id}`);
     byId.set(raw, entry);
-    const key = normalizeModelKey(id);
+    const normalized = normalizeModelKey(id);
+    // A router such as kilo-auto/free must not price unrelated provider/free routes.
+    const key = normalized === "free" ? raw : normalized;
     const first = byKey.get(key);
     if (!first) byKey.set(key, entry);
     else if (PRICE_FIELDS.some((field) => first[field] !== entry[field])) conflicts.push(`${key}: ${first.id} vs ${entry.id}`);

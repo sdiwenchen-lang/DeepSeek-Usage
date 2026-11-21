@@ -64,6 +64,21 @@ test("会话保留模型分项供筛选，未定价费用为 null 并标注不�
   assert.equal(result.coverage.complete, true);
 });
 
+test("免费模型保留 Token 和请求统计，费用按零元完整计价", async () => {
+  const local = source([{ header: { id: "free" }, events: [
+    message(1, "2026-11-06T00:00:00Z", "nvidia/nemotron-3-ultra-550b-a55b:free", 100),
+    message(2, "2026-11-06T01:00:00Z", "kilo-auto/free", 200),
+  ] }]);
+  const result = await local.query(query);
+  assert.equal(result.totals.tokens, 420);
+  assert.equal(result.requests, 2);
+  assert.equal(result.cost, 0);
+  assert.equal(result.costMeta.complete, true);
+  assert.equal(result.costMeta.unpricedTokens, 0);
+  assert.deepEqual(result.costMeta.unpricedModels, []);
+  assert.ok(result.models.every(model => model.cost === 0 && model.costComplete));
+});
+
 test("缺失 usage 仅影响该查询日期的完整性", async () => {
   const local = source([{ header: { id: "missing" }, events: [message(1, "2026-11-05T01:00:00Z", "priced-one", 100, { usage: undefined }), message(2, "2026-11-06T01:00:00Z", "priced-one", 100)] }]);
   const today = await local.query(query);

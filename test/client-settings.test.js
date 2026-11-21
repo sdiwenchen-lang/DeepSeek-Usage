@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
+import { BUDGET_FAILURE, createBudget } from "../src/budget.js";
 
 const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -13,6 +14,45 @@ function browser(saved = {}) {
   const api = vm.runInContext(source.slice(source.indexOf("function readJSON("), source.indexOf("function seatGlyph(")) + "\n({readRates,restoreRates,ratesParam,getBudget,readSeat,readRaw,readJSON,writeJSON});", context);
   return { api, context, storage };
 }
+
+test("token limits round trip and block the next request at each unit's maximum", async () => {
+  const fragment = source.slice(source.indexOf("function budgetLimit("), source.indexOf("function BudgetSettings("));
+  const api = vm.runInNewContext(fragment + "\n({budgetLimit,budgetDraftValues,createBudgetSaver});");
+  for (const tokenUnit of ["100000000", "10000000", "1000000"]) {
+    const expected = 999 * Number(tokenUnit);
+    const initial = { mode: "local", tokens: { enabled: false, limit: 0 }, cny: { enabled: true, limit: 12 } };
+    let used = expected - 1, persisted;
+    const budget = createBudget({ initial, store: { async save(config) { persisted = config; } }, local: { async query() {
+      return { totals: { tokens: used, cost: 0 }, coverage: { complete: true }, costMeta: { complete: true } };
+    } } });
+    const save = api.createBudgetSaver(body => budget.save(plain(body)), initial, "local");
+    const draft = { tokens: "999", tokenUnit, cny: "999" };
+    assert.equal((await save(draft, "tokens")).status.blocked, false);
+    assert.deepEqual(persisted.tokens, { enabled: true, limit: expected });
+    assert.deepEqual(persisted.cny, initial.cny);
+    const restored = api.budgetDraftValues(persisted, tokenUnit);
+    assert.equal(restored.tokens, "999");
+    assert.equal(restored.tokenUnit, tokenUnit);
+    const reopened = api.budgetDraftValues(persisted);
+    assert.equal(api.budgetLimit(reopened, "tokens").limit, expected);
+    let stream;
+    budget.register({ on(name, handler) { if (name === "llm/stream") stream = handler; } });
+    for (const [total, blocked] of [[expected - 1, false], [expected, true], [expected + 1, true]]) {
+      used = total;
+      let called = false;
+      const chunks = [];
+      for await (const chunk of stream({}, async function* () { called = true; yield "ok"; })) chunks.push(chunk);
+      assert.equal(called, !blocked);
+      assert.equal(blocked ? chunks[0].reason.failure.code : chunks[0], blocked ? BUDGET_FAILURE : "ok");
+    }
+    assert.throws(() => save({ ...draft, tokens: "1000" }, "tokens"), /最多 999/);
+    assert.equal((await save({ ...draft, tokens: "0" }, "tokens")).status.blocked, false);
+  }
+  assert.equal(api.budgetLimit({ tokens: "0.5", tokenUnit: "1000000" }, "tokens").limit, 500000);
+  assert.equal(api.budgetLimit(api.budgetDraftValues({ tokens: { enabled: true, limit: 1 }, cny: { enabled: false } }), "tokens").limit, 1);
+  assert.throws(() => api.budgetLimit({ tokens: "1", tokenUnit: "1000000000" }, "tokens"), /请选择亿、千万或百万单位/);
+  assert.throws(() => api.budgetLimit({ tokens: "0.0000001", tokenUnit: "1000000" }, "tokens"), /整数 Token/);
+});
 
 test("empty or stale browser pricing restores saved host prices, FX and hidden models without POST", () => {
   for (const initial of [{}, { deepseekUsagePricingV2: { schema: 2, usdToCny: 6.7, models: {} } }]) {
@@ -91,7 +131,7 @@ test("saving a model equal to this release's default retains its explicit price"
 });
 
 test("official session logs are requested only after the session view is selected", () => {
-  assert.equal(source.includes('if (!localMode && page !== "calendar" && sessionsNeeded)'), true);
+  assert.equal(source.includes('if (!isLocal && page !== "calendar" && sessionsNeeded)'), true);
   assert.equal(source.includes('if (item[0] === "sessions" && props.onSessionsNeeded) props.onSessionsNeeded();'), true);
 });
 
@@ -138,4 +178,17 @@ test("a delayed mode-only POST cannot restore prices from before a newer edit", 
   finish({ ratesSaved: true, rates: { ...host.rates, usdToCny: 1 } });
   api.restoreRates(await pending);
   assert.deepEqual(plain(api.readRates()), host.rates);
+});
+
+test("token over-limit marks the input instead of printing a bottom error", () => {
+  const source = readFileSync(new URL("../src/client.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/panel.css", import.meta.url), "utf8");
+  assert.match(source, /var tokenOver = [^;]*Number\(draft\.tokens\) > 999/, "上限判断按当前输入值实时计算");
+  assert.match(source, /key === "tokens" && tokenOver\) return;/, "超限时不写入配置");
+  assert.match(source, /d-fx-input" \+ \(token && tokenOver \? " d-fx-invalid"/, "超限时输入框标红");
+  assert.match(source, /"aria-invalid": token && tokenOver \? true/, "红色状态同时暴露给无障碍树");
+  assert.doesNotMatch(source, /rangeOverflow \? "Token 上限每种单位最多 999"/, "不再走设置底部的错误文案通道");
+  assert.match(source, /tokenOver \? jsx\("small", \{ className: "d-budget-invalid", role: "alert", children: "每种单位最多 999，超出不会保存" \}\)/, "标红之外给出可读提示");
+  assert.match(css, /d-fx-input\.d-fx-invalid\s*\{[^}]*var\(--d-danger\)/, "红色来自现有危险色令牌");
+  assert.match(css, /d-budget-invalid\s*\{[^}]*var\(--d-danger\)/, "提示文字与边框同色系");
 });

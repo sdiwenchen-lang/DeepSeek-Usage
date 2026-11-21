@@ -24,6 +24,24 @@ test("new Kimi K3.1 models expose editable benchmark rates", () => {
   );
 });
 
+test("free model routes are fully priced at zero while paid routes and custom prices stay distinct", () => {
+  const buckets = { miss: 1000, output: 100, hit: 2000, cacheWrite: 50 };
+  for (const model of ["nvidia/nemotron-3-ultra-550b-a55b:free", "kilo-auto/free"]) {
+    const quote = createPricing().quote(model, buckets);
+    assert.equal(quote.cost, 0);
+    assert.equal(quote.usd, 0);
+    assert.equal(quote.pricedTokens, 3150);
+    assert.equal(quote.unpricedTokens, 0);
+    assert.equal(quote.costComplete, true);
+    const custom = createPricing({ models: { [model]: { input: 1, output: 2, cacheRead: 0.5, cacheWrite: 1.5 } } }).quote(model, buckets);
+    assert.ok(custom.cost > 0, "saved custom prices take precedence over zero defaults");
+    assert.equal(createPricing({ hidden: [model] }).quote(model, buckets).costComplete, false);
+  }
+  assert.equal(createPricing().quote("kilo-auto/frontier", buckets).costComplete, false);
+  assert.equal(createPricing().quote("another-provider/free", buckets).costComplete, false, "a free router ID is not a generic free price for other providers");
+  assert.equal(createPricing().quote("nvidia/nemotron-3-ultra-550b-a55b", buckets).costComplete, false);
+});
+
 test("snapshot count is consistent and new models price all four exclusive channels", () => {
   assert.equal(DEFAULT_SNAPSHOT.count, DEFAULT_SNAPSHOT.models.length);
   const pricing = createPricing({ usdToCny: 7 });
