@@ -1075,7 +1075,7 @@ function BudgetSettings(props) {
     jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
       blocked
         ? jsx("b", { children: "已达到每日限额，后续调用已熔断；次日 00:00 或提高限额后恢复" })
-        : jsx("span", { children: "达到上限熔断所有调用，按当前本地/官方模式计算。" + (incomplete ? "统计不完整，已知用量达限仍熔断。" : "") }),
+        : jsx("span", { children: "达到上限即熔断后续调用。" + (incomplete ? "统计不完整，按已知用量判断。" : "") }),
     ] }),
     error || saved || (info && !info.status.storageAvailable) ? jsx("span", { className: "d-budget-inline-status" + (error ? " d-budget-warning" : ""), role: error ? "alert" : "status", title: error || (info ? budgetLabel(info) : ""), children: error || (saved ? "每日限额已保存" : "宿主配置存储不可用") }) : null,
   ] });
