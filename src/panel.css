@@ -3444,6 +3444,20 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   min-height: 38px;
   max-height: 38px;
 }
+/* 290px 的默认面板减去左侧导航后，数字输入框只剩十几像素；限额页单独加宽并保底宽度。 */
+.d-usage .d-settings-panel.d-settings-tab-budget {
+  width: min(360px, calc(100vw - 24px));
+  grid-template-columns: 84px minmax(0, 1fr);
+}
+.d-usage .d-budget-settings .d-fx-row { gap: 6px; min-width: 0; max-width: 100%; }
+.d-usage .d-budget-settings .d-fx-label { flex: 0 1 auto; min-width: 0; }
+.d-usage .d-budget-settings { grid-template-columns: minmax(0, 1fr); }
+.d-usage .d-budget-settings .d-fx-input {
+  flex: 1 1 96px;
+  width: auto;
+  min-width: 96px;
+  text-align: right;
+}
 .d-usage .d-budget-settings .d-settings-label { margin: 0; padding: 0; }
 .d-usage .d-budget-inline-status { min-width: 0; margin-top: 0; color: var(--d-muted); font: 400 12px/1.5 var(--d-font-body); text-align: left; overflow-wrap: anywhere; }
 .d-usage .d-budget-inline-status.d-budget-warning { color: var(--d-danger); }
@@ -3459,4 +3473,6 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 
 @media (max-width: 560px) {
   .d-usage .d-settings-panel .d-fx-input { font-size: 16px; }
+  .d-usage .d-budget-settings .d-fx-row { height: auto; min-height: 38px; max-height: none; flex-wrap: wrap; row-gap: 6px; }
+  .d-usage .d-budget-settings .d-fx-input { flex: 1 1 100%; }
 }
