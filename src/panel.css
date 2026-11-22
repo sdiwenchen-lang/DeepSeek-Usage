@@ -3015,13 +3015,13 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 6px;
+  padding: 6px 6px;
   border-right: 1px solid var(--d-border);
 }
 .d-usage .d-settings-nav-item {
   width: 100%;
-  min-height: 36px;
-  padding: 7px 8px;
+  min-height: 33px;
+  padding: 6px 8px;
   border: 0;
   border-radius: var(--d-radius-sm);
   background: transparent;
@@ -3439,7 +3439,6 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 .d-usage .d-rank-row:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; border-radius: 4px; }
 .d-usage .d-settings-panel.d-settings-tab-appearance > .d-settings-appearance { transform: translateY(-2px); }
 .d-usage .d-settings-panel.d-settings-tab-budget > .d-settings-budget { align-content: center; gap: 8px; padding: 8px 10px; overflow: hidden; }
-/* 左侧导航已经高亮「每日限额」，页内再写一遍是同义重复，去掉把高度留给字段与用量。 */
 .d-usage .d-settings-panel.d-settings-tab-budget > .d-settings-budget > .d-fx-heading { display: none; }
 /* 每日限额：标签在上、金额与单位合成一个控件，组间距 > 组内间距。 */
 .d-usage .d-budget-settings {
@@ -3473,7 +3472,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   font: 500 11px/1 var(--d-font-body);
 }
 
-/* 金额与单位是一整个控件：左半输入、右半单位，共用一条外框。 */
+/* 金额 + 单位合成一个控件。 */
 .d-usage .d-budget-settings .d-fx-input,
 .d-usage .d-budget-settings .d-fx-btn {
   grid-column: 1;
@@ -3499,7 +3498,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 
 .d-usage .d-budget-settings .d-fx-btn { display: flex; align-items: center; justify-content: flex-end; }
 
-/* 焦点落在整组（金额 + 单位）上，描边一起点亮，不在控件中间断开。 */
+/* 焦点落在整组上，描边一起点亮。 */
 .d-usage .d-budget-settings .d-fx-row:focus-within .d-fx-input,
 .d-usage .d-budget-settings .d-fx-row:focus-within .d-fx-btn,
 .d-usage .d-budget-settings .d-fx-row:focus-within .d-token-limit-unit,
@@ -3508,23 +3507,18 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--d-accent) 20%, transparent);
 }
 
-.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid) .d-token-limit-unit {
+.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid) .d-fx-input {
   border-color: var(--d-danger);
   color: var(--d-danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--d-danger) 18%, transparent);
 }
 
-.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid) .d-fx-input,
-.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid) .d-fx-btn,
-.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid):focus-within .d-fx-input,
+/* 出错的是金额，不是单位：单位保持中性，红框只圈数字区。 */
+.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid) .d-token-limit-unit,
 .d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid):focus-within .d-token-limit-unit {
-  border-color: var(--d-danger);
-  color: var(--d-danger);
+  border-color: var(--d-border);
+  color: var(--d-fg);
   box-shadow: none;
-}
-
-.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid):focus-within .d-fx-input,
-.d-usage .d-budget-settings .d-fx-row:has(.d-fx-invalid):focus-within .d-token-limit-unit {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--d-danger) 20%, transparent);
 }
 
 .d-usage .d-budget-settings .d-token-limit-unit,
@@ -3539,21 +3533,20 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   margin: 0;
   padding: 0 4px;
   border: 1px solid var(--d-border);
-  border-left: 0;
   border-radius: 0 8px 8px 0;
   background: color-mix(in srgb, var(--d-fg) 4%, var(--d-surface));
   color: var(--d-muted);
   font: 500 12px/1 var(--d-font-body);
 }
 
-.d-usage .d-budget-settings .d-token-limit-unit { color: var(--d-fg); }
+.d-usage .d-budget-settings .d-token-limit-unit { color: var(--d-fg); font-variant-numeric: tabular-nums; }
 
 
 
-/* 今日已用 / 上限：一行密集的对账信息，用等宽数字对齐。 */
+/* 今日已用与占比。 */
 .d-usage .d-budget-usage {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
   color: var(--d-muted);
   font: 400 11px/1.5 var(--d-font-mono);
@@ -3564,7 +3557,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 .d-usage .d-budget-inline-status { min-width: 0; margin-top: 0; color: var(--d-muted); font: 400 11.5px/1.5 var(--d-font-body); text-align: left; overflow-wrap: anywhere; text-wrap: pretty; }
 .d-usage .d-budget-inline-status.d-budget-warning { color: var(--d-danger); }
 
-.d-usage .d-budget-invalid { min-width: 0; color: var(--d-danger); font: 500 11px/1.45 var(--d-font-body); }
+.d-usage .d-budget-settings .d-budget-invalid { grid-column: 1 / -1; grid-row: 3; min-width: 0; margin-top: 2px; color: var(--d-danger); font: 500 11px/1.4 var(--d-font-body); }
 .d-usage .d-budget-hint { display: grid; gap: 2px; min-width: 0; color: var(--d-muted); font: 400 11px/1.5 var(--d-font-body); overflow-wrap: anywhere; text-wrap: pretty; }
 .d-usage .d-budget-hint b { color: var(--d-danger); font-weight: 600; }
 

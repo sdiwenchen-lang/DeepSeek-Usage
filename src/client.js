@@ -1036,9 +1036,13 @@ function BudgetSettings(props) {
     if (limits.cny.enabled) usage.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)) + " / " + fmtMoney(limits.cny.limit));
   }
   var used = [];
+  function share(value, limit) {
+    if (value == null || !(limit > 0)) return "";
+    return " · " + (Math.round(value / limit * 1000) / 10) + "%";
+  }
   if (status && !pending && status.enabled && limits) {
-    if (limits.tokens.enabled) used.push("Token " + (status.tokens == null ? "—" : fmtK(status.tokens)));
-    if (limits.cny.enabled) used.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)));
+    if (limits.tokens.enabled) used.push("Token " + (status.tokens == null ? "—" : fmtK(status.tokens)) + share(status.tokens, limits.tokens.limit));
+    if (limits.cny.enabled) used.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)) + share(status.cny, limits.cny.limit));
   }
   var optimistic = false;
   if (pending && props.today && limits) {
@@ -1062,7 +1066,7 @@ function BudgetSettings(props) {
   }
   return jsxs("div", { className: "d-budget-settings", children: [
     draft ? ["tokens", "cny"].map(function (key) {
-      var token = key === "tokens", label = token ? "Token 上限" : "消费上限", disabled = !info.status.storageAvailable;
+      var token = key === "tokens", label = token ? "每日 Token 上限" : "每日消费上限", disabled = !info.status.storageAvailable;
       return jsxs("div", { className: "d-fx-row", onBlur: token ? function (event) {
         if (!event.currentTarget.contains(event.relatedTarget)) save(key, event.currentTarget.querySelector("input"));
       } : undefined, children: [
@@ -1070,18 +1074,18 @@ function BudgetSettings(props) {
         token || edit === key ? jsx("input", { className: "d-fx-input" + (token && tokenOver ? " d-fx-invalid" : ""), type: "number", min: 0, max: token ? 999 : undefined,
           step: token ? "any" : "0.01", inputMode: "decimal", autoFocus: !token, "aria-label": "每日" + label, placeholder: "不限", disabled: disabled, value: draft[key],
           "aria-invalid": token && tokenOver ? true : undefined, onChange: function (event) { change(key, event); }, onBlur: token ? undefined : function (event) { setEdit(""); save(key, event.currentTarget); }, onKeyDown: enter }) :
-          jsx("button", { type: "button", className: "d-fx-btn", disabled: disabled, title: "点击修改" + label, onClick: function () { setEdit(key); }, children: draft.cny === "" ? "不限" : fmtMoney(Number(draft.cny)) }),
+          jsx("button", { type: "button", className: "d-fx-btn", disabled: disabled, title: "点击修改" + label, onClick: function () { setEdit(key); }, children: draft.cny === "" ? "不限" : Number(draft.cny).toFixed(2) }),
         token ? jsx("select", { className: "d-settings-select d-token-limit-unit", "aria-label": "Token 上限单位", disabled: disabled, value: draft.tokenUnit,
           onChange: function (event) { change("tokenUnit", event); }, children: ["亿", "千万", "百万"].map(function (unit, i) { return jsx("option", { value: 10 ** (8 - i), children: unit }, unit); }) }) :
-          jsx("span", { className: "d-fx-unit", children: "CNY" }),
+          jsx("span", { className: "d-fx-unit", children: "元" }),
+        token && tokenOver ? jsx("small", { className: "d-budget-invalid", role: "alert", children: "最多填 999，当前 " + String(draft.tokens) }) : null,
       ] }, key);
     }) : null,
-    used.length && !blocked ? jsx("div", { className: "d-budget-usage", children: used.join(" · ") }) : null,
-    tokenOver ? jsx("small", { className: "d-budget-invalid", role: "alert", children: "每种单位最多 999，超出不会保存" }) : null,
-    tokenOver ? null : jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
+    used.length && !blocked && !tokenOver ? jsx("div", { className: "d-budget-usage", children: used.map(function (line, i) { return jsx("span", { children: line }, i); }) }) : null,
+    jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
       blocked
         ? jsx("b", { children: "已达到每日限额，后续调用已熔断；次日 00:00 或提高限额后恢复" })
-        : jsx("span", { children: "达到上限即熔断后续调用。" + (incomplete ? "统计不完整，按已知用量判断。" : "") }),
+        : jsx("span", { children: "达上限暂停，次日 00:00 恢复。" + (incomplete ? "统计不完整，按已知用量判断。" : "") }),
     ] }),
     error || saved || (info && !info.status.storageAvailable) ? jsx("span", { className: "d-budget-inline-status" + (error ? " d-budget-warning" : ""), role: error ? "alert" : "status", title: error || (info ? budgetLabel(info) : ""), children: error || (saved ? "每日限额已保存" : "宿主配置存储不可用") }) : null,
   ] });
@@ -1621,7 +1625,7 @@ function Dialog(props) {
                         onBlur: saveFx,
                          onKeyDown: function(e){if(e.key==="Enter")e.currentTarget.blur();},
                       }) : jsx("button", { type: "button", className: "d-fx-btn", onClick: function () { setFxDraft(String(fx)); setFxEdit(true); }, title: "点击修改 USD 兑 CNY 汇率", "data-tooltip": "点击修改汇率，按 Enter 或移开焦点保存", children: fx }),
-                       jsx("span", { className: "d-fx-unit", children: "CNY" }),
+                       jsx("span", { className: "d-fx-unit", children: "元" }),
                     ] }),
                     jsx("small", { className: "d-rate-description", children: "配置模型定价" }),
                     jsx("button", {

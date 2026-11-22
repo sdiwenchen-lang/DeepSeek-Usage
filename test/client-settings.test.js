@@ -188,7 +188,7 @@ test("token over-limit marks the input instead of printing a bottom error", () =
   assert.match(source, /d-fx-input" \+ \(token && tokenOver \? " d-fx-invalid"/, "超限时输入框标红");
   assert.match(source, /"aria-invalid": token && tokenOver \? true/, "红色状态同时暴露给无障碍树");
   assert.doesNotMatch(source, /rangeOverflow \? "Token 上限每种单位最多 999"/, "不再走设置底部的错误文案通道");
-  assert.match(source, /tokenOver \? jsx\("small", \{ className: "d-budget-invalid", role: "alert", children: "每种单位最多 999，超出不会保存" \}\)/, "标红之外给出可读提示");
+  assert.match(source, /token && tokenOver \? jsx\("small", \{ className: "d-budget-invalid", role: "alert", children: "最多填 999，当前 " \+ String\(draft\.tokens\) \}\)/, "标红之外在字段正下方给出可读提示");
   assert.match(css, /d-fx-input\.d-fx-invalid\s*\{[^}]*var\(--d-danger\)/, "红色来自现有危险色令牌");
   assert.match(css, /d-budget-invalid\s*\{[^}]*var\(--d-danger\)/, "提示文字与边框同色系");
 });
