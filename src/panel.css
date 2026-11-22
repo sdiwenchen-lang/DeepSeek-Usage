@@ -3228,14 +3228,15 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   }
 }
 
-/* Final settings popover: one fixed 290x240 frame, content vertically centred. */
+/* Final settings popover: one fixed 360x240 frame for every tab, content vertically centred. */
 .d-usage .d-settings-panel,
-.d-usage .d-settings-panel.d-settings-tab-seat {
-  grid-template-columns: 92px minmax(0, 1fr);
+.d-usage .d-settings-panel.d-settings-tab-seat,
+.d-usage .d-settings-panel.d-settings-tab-budget {
+  grid-template-columns: 84px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   align-content: stretch;
   box-sizing: border-box;
-  width: 290px;
+  width: 360px;
   height: 240px;
   min-height: 240px;
   max-height: 240px !important;
@@ -3359,7 +3360,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   z-index: 30;
 }
 .d-usage .d-settings-panel:has(.d-icon-choice-inline) {
-  width: 290px;
+  width: 360px;
   height: 240px;
   min-height: 240px;
   max-height: 240px !important;
@@ -3367,10 +3368,11 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 }
 @media (max-width: 560px) {
   .d-usage .d-settings-panel,
-  .d-usage .d-settings-panel.d-settings-tab-seat {
-    left: max(12px, calc(50vw - 145px));
+  .d-usage .d-settings-panel.d-settings-tab-seat,
+  .d-usage .d-settings-panel.d-settings-tab-budget {
+    left: max(12px, calc(50vw - 180px));
     right: auto;
-    width: min(290px, calc(100vw - 24px));
+    width: min(360px, calc(100vw - 24px));
     height: 240px;
     min-height: 240px;
     max-height: min(240px, calc(100vh - 96px)) !important;
@@ -3444,17 +3446,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   min-height: 38px;
   max-height: 38px;
 }
-/* 290px 的默认面板减去左侧导航后，数字输入框只剩十几像素；切到限额页时面板自动撑大。 */
-.d-usage .d-settings-panel {
-  transition: width .22s cubic-bezier(.4, 0, .2, 1), grid-template-columns .22s cubic-bezier(.4, 0, .2, 1);
-}
-.d-usage .d-settings-panel.d-settings-tab-budget {
-  width: min(392px, calc(100vw - 24px));
-  grid-template-columns: 84px minmax(0, 1fr);
-}
-@media (prefers-reduced-motion: reduce) {
-  .d-usage .d-settings-panel { transition: none; }
-}
+/* 限额页不再单独改尺寸：所有设置页共用同一块固定面板（360×240）。 */
 .d-usage .d-budget-settings .d-fx-row { gap: 6px; min-width: 0; max-width: 100%; }
 .d-usage .d-budget-settings .d-fx-label { flex: 0 1 auto; min-width: 0; }
 .d-usage .d-budget-settings { grid-template-columns: minmax(0, 1fr); }
@@ -3465,7 +3457,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   text-align: right;
 }
 .d-usage .d-budget-settings .d-settings-label { margin: 0; padding: 0; }
-.d-usage .d-budget-inline-status { min-width: 0; margin-top: 0; color: var(--d-muted); font: 400 12px/1.5 var(--d-font-body); text-align: left; overflow-wrap: anywhere; }
+.d-usage .d-budget-inline-status { min-width: 0; margin-top: 0; color: var(--d-muted); font: 400 12px/1.5 var(--d-font-body); text-align: left; overflow-wrap: anywhere; text-wrap: pretty; }
 .d-usage .d-budget-inline-status.d-budget-warning { color: var(--d-danger); }
 
 /* 会话图说明与限额提示：左对齐，面板尺寸保持与其他设置页一致。 */
@@ -3474,7 +3466,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 
 /* 每日限额沿用汇率配置的标题、行式显示和底部说明。 */
 .d-usage .d-budget-invalid { min-width: 0; color: var(--d-danger); font: 400 11.5px/1.45 var(--d-font-body); }
-.d-usage .d-budget-hint { display: grid; gap: 2px; min-width: 0; color: var(--d-muted); font: 400 11.5px/1.45 var(--d-font-body); overflow-wrap: anywhere; }
+.d-usage .d-budget-hint { display: grid; gap: 2px; min-width: 0; color: var(--d-muted); font: 400 11.5px/1.45 var(--d-font-body); overflow-wrap: anywhere; text-wrap: pretty; }
 .d-usage .d-budget-hint b { color: var(--d-danger); font-weight: 600; }
 
 @media (max-width: 560px) {
