@@ -3436,7 +3436,7 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
 .d-usage .d-session-rank-chart { max-height: 264px; overflow-y: auto; overflow-x: hidden; padding: 0 4px 4px 0; scrollbar-width: thin; }
 .d-usage .d-rank-row:focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; border-radius: 4px; }
 .d-usage .d-settings-panel.d-settings-tab-appearance > .d-settings-appearance { transform: translateY(-2px); }
-.d-usage .d-settings-panel.d-settings-tab-budget > .d-settings-budget { align-content: start; gap: 8px; overflow: hidden; }
+.d-usage .d-settings-panel.d-settings-tab-budget > .d-settings-budget { align-content: center; gap: 8px; overflow: hidden; }
 .d-usage .d-budget-settings { display: grid; gap: 4px; min-width: 0; padding: 0; }
 .d-usage .d-budget-settings .d-token-limit-unit { flex: none; width: 64px; margin: 0; padding: 0 4px; }
 .d-usage .d-budget-settings .d-fx-row {
@@ -3444,10 +3444,16 @@ div:has(> [data-slot='sidebar.footer.action']){flex-wrap:wrap}.d-seat-layer{flex
   min-height: 38px;
   max-height: 38px;
 }
-/* 290px 的默认面板减去左侧导航后，数字输入框只剩十几像素；限额页单独加宽并保底宽度。 */
+/* 290px 的默认面板减去左侧导航后，数字输入框只剩十几像素；切到限额页时面板自动撑大。 */
+.d-usage .d-settings-panel {
+  transition: width .22s cubic-bezier(.4, 0, .2, 1), grid-template-columns .22s cubic-bezier(.4, 0, .2, 1);
+}
 .d-usage .d-settings-panel.d-settings-tab-budget {
-  width: min(360px, calc(100vw - 24px));
+  width: min(392px, calc(100vw - 24px));
   grid-template-columns: 84px minmax(0, 1fr);
+}
+@media (prefers-reduced-motion: reduce) {
+  .d-usage .d-settings-panel { transition: none; }
 }
 .d-usage .d-budget-settings .d-fx-row { gap: 6px; min-width: 0; max-width: 100%; }
 .d-usage .d-budget-settings .d-fx-label { flex: 0 1 auto; min-width: 0; }
