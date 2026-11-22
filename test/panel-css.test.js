@@ -5,9 +5,10 @@ import { readFileSync } from "node:fs";
 const css = readFileSync(new URL("../src/panel.css", import.meta.url), "utf8");
 
 test("daily limit rows keep a usable numeric field instead of collapsing", () => {
-  assert.match(css, /\.d-budget-settings \.d-fx-label\s*\{[^}]*flex:\s*1 1 100%/);
-  assert.match(css, /\.d-budget-settings \.d-fx-row\s*\{[^}]*min-width:\s*0[^}]*max-width:\s*100%/);
-  assert.match(css, /\.d-budget-settings\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(css, /\.d-budget-settings \.d-fx-row\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto/);
+  assert.match(css, /\.d-budget-settings \.d-fx-label\s*\{[^}]*grid-column:\s*1 \/ -1/);
+  assert.match(css, /\.d-budget-settings \.d-fx-input,\s*\.d-usage \.d-budget-settings \.d-fx-btn\s*\{[^}]*width:\s*100%/);
+  assert.match(css, /\.d-budget-settings \.d-token-limit-unit,\s*\.d-usage \.d-budget-settings \.d-fx-unit\s*\{[^}]*border-radius:\s*0 8px 8px 0/);
 });
 
 test("every settings tab shares the same fixed panel frame", () => {
@@ -23,5 +24,5 @@ test("every settings tab shares the same fixed panel frame", () => {
 
 test("narrow viewports keep the amount readable", () => {
   const narrow = css.slice(css.lastIndexOf("@media (max-width: 560px)"));
-  assert.match(narrow, /\.d-budget-settings \.d-fx-row\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(narrow, /\.d-budget-settings \.d-fx-input,[\s\S]*?\.d-budget-settings \.d-fx-btn \{ height: 38px; \}/);
 });

@@ -1035,6 +1035,11 @@ function BudgetSettings(props) {
     if (limits.tokens.enabled) usage.push("Token " + (status.tokens == null ? "—" : fmtK(status.tokens)) + " / " + fmtK(limits.tokens.limit));
     if (limits.cny.enabled) usage.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)) + " / " + fmtMoney(limits.cny.limit));
   }
+  var used = [];
+  if (status && !pending && status.enabled && limits) {
+    if (limits.tokens.enabled) used.push("Token " + (status.tokens == null ? "—" : fmtK(status.tokens)));
+    if (limits.cny.enabled) used.push("消费 " + (status.cny == null ? "—" : fmtMoney(status.cny)));
+  }
   var optimistic = false;
   if (pending && props.today && limits) {
     var cnyLimit = limits.cny.enabled && limits.cny.limit, tokenLimit = limits.tokens.enabled && limits.tokens.limit;
@@ -1071,8 +1076,9 @@ function BudgetSettings(props) {
           jsx("span", { className: "d-fx-unit", children: "CNY" }),
       ] }, key);
     }) : null,
+    used.length && !blocked ? jsx("div", { className: "d-budget-usage", children: used.join(" · ") }) : null,
     tokenOver ? jsx("small", { className: "d-budget-invalid", role: "alert", children: "每种单位最多 999，超出不会保存" }) : null,
-    jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
+    tokenOver ? null : jsxs("small", { className: "d-budget-hint", role: blocked ? "alert" : "status", title: usage.length ? usageSource + "已用 " + usage.join(" · ") : undefined, children: [
       blocked
         ? jsx("b", { children: "已达到每日限额，后续调用已熔断；次日 00:00 或提高限额后恢复" })
         : jsx("span", { children: "达到上限即熔断后续调用。" + (incomplete ? "统计不完整，按已知用量判断。" : "") }),
